@@ -6,6 +6,7 @@ import { mkdirSync } from 'node:fs';
 import http from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { control, ControlError } from './Control.mjs';
 import MpvPlayer from './MpvPlayer.mjs';
 import { useMusicRadio } from './MusicRadio.mjs';
 import VideoLoader from './VideoLoader.mjs';
@@ -120,7 +121,30 @@ if (env.YTCR_DIAL_ADDITIONAL_DATA === '1') {
 const PAGE = env.YTCR_PAGE || new URL('./nowplaying.html', import.meta.url);
 http.createServer((req, res) => {
   void (async () => {
-    if (req.url === '/' || req.url === '/now-playing') {
+    const url = new URL(req.url, 'http://receiver');
+    const controlAction = url.pathname.match(/^\/api\/control\/([a-z-]+)$/)?.[1];
+    if (controlAction) {
+      // Control API (Control.mjs): POST only, so a link preview or prefetch
+      // can never skip a track.
+      if (req.method !== 'POST') {
+        res.writeHead(405, { allow: 'POST' }).end();
+        return;
+      }
+      let ok;
+      try {
+        ok = await control(player, controlAction, url.searchParams);
+      }
+      catch (error) {
+        if (!(error instanceof ControlError)) throw error;
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: error.message }));
+        return;
+      }
+      receiver.logger.info(`[control] ${controlAction}${url.search} -> ${ok ? 'ok' : 'no effect'}`);
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify({ ok, ...(await player.nowPlaying()) }));
+    }
+    else if (req.url === '/' || req.url === '/now-playing') {
       const page = await readFile(PAGE);
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end(page);

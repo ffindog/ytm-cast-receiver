@@ -46,12 +46,28 @@ Built for a workshop; shared as-is. Issues and ideas welcome.
   the official YouTube app does exactly the same. Swaps themselves are clean here: no
   "stopped" blip, instant reply, and playback continues from the same position.
 
+## Control API
+
+LAN only, no login. POST only (so a link preview can never skip a track); each reply is the
+now-playing JSON plus `"ok"`. The phone app and the screen follow along.
+
+```bash
+curl -X POST http://<receiver>:8098/api/control/play-pause   # also: play, pause
+curl -X POST http://<receiver>:8098/api/control/next          # also: previous
+curl -X POST "http://<receiver>:8098/api/control/volume?step=5"   # or ?step=-5, ?level=40
+curl -X POST "http://<receiver>:8098/api/control/mute"        # ?on=1 | 0 | toggle (default)
+```
+
+Read-only: `GET /api/now-playing`. Unmute restores the level from before muting (YouTube
+Music on iOS can't mute, so the library mutes by setting the level to 0).
+
 ## What's in here
 
 | Path | What |
 |---|---|
 | `ytcr-player/index.mjs` | Receiver setup, data store, the now-playing HTTP server |
 | `ytcr-player/VideoLoader.mjs` | Track → stream URLs, with the `ctt` handling (adapted from [volumio-ytcr](https://github.com/patrickkfkan/volumio-ytcr), MIT) |
+| `ytcr-player/Control.mjs` | Control API (play/pause, next/previous, volume, mute) |
 | `ytcr-player/MusicRadio.mjs` | End-of-queue suggestions from YouTube Music's radio |
 | `ytcr-player/MpvPlayer.mjs` | Player: long-running audio mpv + per-video DRM mpv, skip/volume logic |
 | `ytcr-player/patch-ytcr.cjs` | Build-time patches to yt-cast-receiver; each must match exactly once or the build fails |
@@ -103,8 +119,7 @@ Notes:
 
 ## Roadmap
 
-1. **Control API**: play/pause, next, previous, volume, mute over HTTP on the LAN (the
-   now-playing API is read-only today). Everything below builds on it.
+1. ~~**Control API**~~ **done** (see above). Everything below builds on it.
 2. **Browser control page**: now playing plus big controls, from any device on the network,
    no app or login.
 3. **Physical remote**: e.g. an ESP32 button remote (via an ESP-NOW bridge) or Zigbee
