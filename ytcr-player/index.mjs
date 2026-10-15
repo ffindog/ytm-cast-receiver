@@ -7,6 +7,7 @@ import http from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import MpvPlayer from './MpvPlayer.mjs';
+import { useMusicRadio } from './MusicRadio.mjs';
 import VideoLoader from './VideoLoader.mjs';
 
 // The Volumio build of yt-cast-receiver is CommonJS.
@@ -58,6 +59,9 @@ const loaderLogger = {
   error: (...a) => receiver.logger.error(...a),
   debug: (...a) => receiver.logger.debug(...a)
 };
+// End-of-queue suggestions come from YouTube Music's radio (MusicRadio.mjs).
+if (env.YTCR_FORCE_AUTOPLAY === '1') useMusicRadio(loaderLogger);
+
 const player = new MpvPlayer(new VideoLoader(loaderLogger), {
   audioDevice: env.YTCR_AUDIO_DEVICE,
   volumeFile: `${DATA_DIR}/volume.json`

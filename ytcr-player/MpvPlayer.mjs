@@ -37,6 +37,9 @@ const SCREEN_RELEASE_TIMEOUT_MS = 5000;
 // How long to wait for the first video frame before reporting "playing" anyway.
 const VIDEO_START_TIMEOUT_MS = 8000;
 
+// Longest wait for a previous/next lookup before moving on to the next track.
+const ADVANCE_WAIT_MS = 15000;
+
 // How often the phone is sent the playback position while playing.
 const POSITION_UPDATE_MS = 5000;
 
@@ -242,6 +245,14 @@ export default class MpvPlayer extends Player {
 
   async #advance() {
     try {
+      // next() is silently ignored while the queue is looking up the
+      // previous/next tracks - which it does right after an end-of-queue
+      // suggestion starts. A track failing in that window used to leave the
+      // receiver silent (soak test 2026-10-15). Wait for the lookup first.
+      for (let waited = 0; this.queue.isUpdating && waited < ADVANCE_WAIT_MS; waited += 250) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      if (this.queue.isUpdating) this.logger.warn('[player] queue still updating; trying next() anyway');
       await this.next();
     }
     catch (error) {

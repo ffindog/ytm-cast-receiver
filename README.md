@@ -33,7 +33,9 @@ Built for a workshop; shared as-is. Issues and ideas welcome.
 
 - **The music never just stops at the end of the queue.** In YouTube Music the phone tops up
   the queue, which doesn't happen while it's locked or away. With `YTCR_FORCE_AUTOPLAY=1` the
-  receiver carries on with YouTube's own "up next" suggestions, indefinitely.
+  receiver carries on by itself through **YouTube Music's radio** for the last queued track
+  (`RDAMVM<videoId>`), in order, skipping anything played recently (`MusicRadio.mjs`).
+  YouTube's plain TV autoplay was tried first and drifted into non-music videos.
 - **Failed tracks are skipped**, at most 3 in a row, then it stops (so an outage can't race
   through the queue).
 - **Volume** from the phone is confirmed once, 0.33 s after the last press (per-press
@@ -50,6 +52,7 @@ Built for a workshop; shared as-is. Issues and ideas welcome.
 |---|---|
 | `ytcr-player/index.mjs` | Receiver setup, data store, the now-playing HTTP server |
 | `ytcr-player/VideoLoader.mjs` | Track → stream URLs, with the `ctt` handling (adapted from [volumio-ytcr](https://github.com/patrickkfkan/volumio-ytcr), MIT) |
+| `ytcr-player/MusicRadio.mjs` | End-of-queue suggestions from YouTube Music's radio |
 | `ytcr-player/MpvPlayer.mjs` | Player: long-running audio mpv + per-video DRM mpv, skip/volume logic |
 | `ytcr-player/patch-ytcr.cjs` | Build-time patches to yt-cast-receiver; each must match exactly once or the build fails |
 | `ytcr-player/nowplaying.html` | The screen page (mounted, so edits need only a kiosk restart) |
