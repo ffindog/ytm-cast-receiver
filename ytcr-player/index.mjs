@@ -108,8 +108,9 @@ await player.start();
 await receiver.start();
 
 // Carry on with what was playing before a restart (Resume.mjs).
+let finalResumeSave = async () => {};
 try {
-  await restoreAndKeepSaving(player, `${DATA_DIR}/resume.json`, receiver.logger);
+  finalResumeSave = await restoreAndKeepSaving(player, `${DATA_DIR}/resume.json`, receiver.logger);
 }
 catch (error) {
   receiver.logger.error(`[resume] could not restore: ${error?.message || error}`);
@@ -201,6 +202,8 @@ for (const signal of [ 'SIGINT', 'SIGTERM' ]) {
   process.on(signal, () => {
     void (async () => {
       try {
+        // Before stop(): stopping empties the queue (Resume.mjs).
+        await finalResumeSave();
         await receiver.stop();
       }
       finally {

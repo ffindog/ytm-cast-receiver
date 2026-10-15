@@ -23,6 +23,13 @@ const TICK_MS = 50;
 const TICK_BYTES = (BYTES_PER_SEC * TICK_MS) / 1000;
 const SILENCE = Buffer.alloc(TICK_BYTES);
 const BITRATE = process.env.YTCR_STREAM_BITRATE || '192k';
+// Give browsers a cushion: the stream runs this far ahead of real time, and a
+// listener joining a running stream first gets this much recent audio at once.
+// Sent at exactly real-time speed from the start, browsers played a few
+// seconds, ran dry and skipped (2026-10-15).
+const LEAD_SEC = 3;
+const LEAD_BYTES = BYTES_PER_SEC * LEAD_SEC;
+const BURST_BYTES = (parseInt(BITRATE, 10) * 1000 / 8) * LEAD_SEC;
 // Pause the download once this much audio is buffered (~6 minutes, ~63 MB).
 const MAX_BUFFER_BYTES = BYTES_PER_SEC * 360;
 const MAX_RESUMES = 3;
@@ -41,6 +48,10 @@ export default class HouseStream {
   #decoderDone = false;
   #resumes = 0;
   #generation = 0;
+  #startedAt = 0; // when the encoder started
+  #sentBytes = 0; // PCM fed to the encoder since then
+  #recent = []; // last BURST_BYTES of MP3, for listeners who join later
+  #recentBytes = 0;
 
   constructor(logger) {
     this.#logger = logger;
@@ -84,6 +95,7 @@ export default class HouseStream {
     req.on('close', leave);
     res.on('error', leave);
     if (!this.#encoder) this.#startEncoder();
+    else if (this.#recentBytes) res.write(Buffer.concat(this.#recent));
   }
 
   // --- Internals -----------------------------------------------------------
@@ -103,6 +115,11 @@ export default class HouseStream {
     this.#encoder = ff;
     ff.stdout.on('data', (chunk) => {
       for (const res of this.#listeners) res.write(chunk);
+      this.#recent.push(chunk);
+      this.#recentBytes += chunk.length;
+      while (this.#recentBytes - this.#recent[0].length >= BURST_BYTES) {
+        this.#recentBytes -= this.#recent.shift().length;
+      }
     });
     ff.stderr.on('data', (d) => this.#logger.warn(`[stream] encoder: ${String(d).trim()}`));
     ff.stdin.on('error', () => {});
@@ -116,10 +133,24 @@ export default class HouseStream {
       for (const res of this.#listeners) res.end();
       this.#listeners.clear();
     });
-    // One clock for everything: real-time 50 ms ticks of audio or silence.
-    this.#pacer = setInterval(() => this.#tick(), TICK_MS);
+    // One clock for everything: 50 ms ticks of audio or silence, kept
+    // LEAD_SEC ahead of real time (the first tick sends the lead at once).
+    this.#startedAt = Date.now();
+    this.#sentBytes = 0;
+    this.#recent = [];
+    this.#recentBytes = 0;
+    this.#pacer = setInterval(() => this.#pace(), TICK_MS);
     this.#logger.info('[stream] encoder started');
     if (this.#source) this.#startDecoder(this.#livePosition());
+  }
+
+  #pace() {
+    const target = ((Date.now() - this.#startedAt) / 1000) * BYTES_PER_SEC + LEAD_BYTES;
+    // Also catches up after the event loop was busy.
+    while (this.#encoder && this.#sentBytes + TICK_BYTES <= target) {
+      this.#tick();
+      this.#sentBytes += TICK_BYTES;
+    }
   }
 
   #tick() {

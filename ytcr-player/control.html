@@ -56,10 +56,20 @@
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   #artist { font-size: 20px; color: var(--muted); white-space: nowrap; overflow: hidden;
     text-overflow: ellipsis; }
-  #bar { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; }
-  #fill { height: 100%; width: 0; background: var(--text); }
+  /* Draggable progress bar: the padding makes a finger-sized hit area. */
+  #seek { padding: 10px 0; margin: -10px 0; cursor: pointer; touch-action: none; }
+  #seek.off { cursor: default; }
+  #bar { position: relative; height: 5px; background: var(--line); border-radius: 3px; }
+  #fill { height: 100%; width: 0; background: var(--text); border-radius: 3px; }
+  #knob { position: absolute; top: 50%; left: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px;
+    border-radius: 50%; background: var(--text); transition: transform .1s; }
+  #seek.off #knob { display: none; }
+  #seek.drag #knob { transform: scale(1.4); }
+  #seek.drag #bar { height: 7px; }
   #times { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted);
-    font-variant-numeric: tabular-nums; margin-top: 4px; }
+    font-variant-numeric: tabular-nums; margin-top: 4px; gap: 10px; }
+  #upnext { flex: 1; min-width: 0; text-align: center; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; }
 
   /* Control groups */
   .group { background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
@@ -120,6 +130,7 @@
     #status { font-size: 12px; }
     input[type=range] { height: 22px; }
   }
+  img:not([src]) { visibility: hidden; } /* before the first poll */
 </style>
 </head>
 <body>
@@ -137,8 +148,8 @@
         <div id="artist"></div>
       </div>
       <div id="progress">
-        <div id="bar"><div id="fill"></div></div>
-        <div id="times"><span id="pos">0:00</span><span id="dur">0:00</span></div>
+        <div id="seek" class="off"><div id="bar"><div id="fill"></div><div id="knob"></div></div></div>
+        <div id="times"><span id="pos">0:00</span><span id="upnext"></span><span id="dur">0:00</span></div>
       </div>
     </section>
 
@@ -194,39 +205,76 @@
   // ---------- Now playing + workshop (remote) controls ----------
   let last = null;
   let lastAt = 0;
-  let artUrl = null;
+  // Shown when there is no artwork (an <img> with no picture is a broken tile).
+  const NO_ART = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+    + '<rect width="24" height="24" fill="#14171b"/>'
+    + '<path transform="translate(6 5.5) scale(.5)" fill="#3a4048" d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3z"/></svg>');
+  let artUrl;
   let dragging = false;
   let busy = false;
 
+  const preload = new Image();
+  // Between songs the receiver briefly reports nothing playing. Show the
+  // next song ("Loading next…", art already preloaded) for up to HOLD_MS
+  // instead of dropping to the "cast to start" placeholder.
+  const HOLD_MS = 15000;
+  let activeAt = 0;
+  let lastLive = null;
   function render() {
     const s = last;
     const active = !!(s && s.track && s.state !== 'idle');
+    if (active) {
+      activeAt = Date.now();
+      lastLive = s;
+    }
+    const holding = !active && !!s && !!lastLive && Date.now() - activeAt < HOLD_MS;
+    const track = active ? s.track : holding ? (lastLive.next || lastLive.track) : null;
     const paused = active && s.state === 'paused';
-    $('status').textContent = !s ? 'Offline' : !active ? 'Nothing playing' : paused ? 'Paused' : 'Now playing';
-    if (!active) {
+    $('status').textContent = !s ? 'Offline' : holding ? 'Loading next…' : !active ? 'Nothing playing'
+      : paused ? 'Paused' : 'Now playing';
+    if (!track) {
       $('title').textContent = 'Cast from YouTube Music to start';
       $('artist').textContent = '';
+    }
+    else {
+      $('title').textContent = track.title || '';
+      $('artist').textContent = track.artist || '';
+    }
+    const dur = active ? s.duration || 0 : 0;
+    $('seek').classList.toggle('off', !dur);
+    if (!active) {
       $('fill').style.width = '0';
+      $('knob').style.left = '0';
       $('pos').textContent = $('dur').textContent = '0:00';
     }
     else {
-      $('title').textContent = s.track.title || '';
-      $('artist').textContent = s.track.artist || '';
-      const pos = paused ? s.position : s.position + (Date.now() - lastAt) / 1000;
-      const dur = s.duration || 0;
+      let pos = paused ? s.position : s.position + (Date.now() - lastAt) / 1000;
+      if (seekDrag !== null) pos = seekDrag;
+      else if (seekSent) {
+        // Until the receiver reports the new place, show where we sent it.
+        const expected = seekSent.pos + (paused ? 0 : (Date.now() - seekSent.at) / 1000);
+        if (Math.abs(pos - expected) > 3 && Date.now() - seekSent.at < 4000) pos = expected;
+        else seekSent = null;
+      }
+      const pct = dur ? `${Math.min(100, (pos / dur) * 100)}%` : '0';
       $('pos').textContent = fmt(Math.min(pos, dur || pos));
       $('dur').textContent = fmt(dur);
-      $('fill').style.width = dur ? `${Math.min(100, (pos / dur) * 100)}%` : '0';
+      $('fill').style.width = pct;
+      $('knob').style.left = pct;
     }
+    const next = active ? s.next : null;
+    $('upnext').textContent = next ? `Up next: ${next.title}${next.artist ? ` – ${next.artist}` : ''}` : '';
+    // Fetch the next song's art ahead so it shows straight away.
+    if (next?.thumbnail && next.thumbnail !== preload.src) preload.src = next.thumbnail;
     $('toggle-icon').setAttribute('d', active && !paused ? PAUSE : PLAY);
     // Play stays usable when nothing shows: it resumes a queue restored after
     // a restart (or reports "Nothing to do").
     for (const id of [ 'prev', 'next' ]) $(id).disabled = !active;
-    const art = active ? s.track.thumbnail : null;
+    const art = track?.thumbnail || null;
     if (art !== artUrl) {
       artUrl = art;
       for (const id of [ 'art', 'thumb' ]) {
-        $(id).src = art || '';
+        $(id).src = art || NO_ART;
         $(id).classList.toggle('empty', !art);
       }
       updateMediaSession();
@@ -285,6 +333,39 @@
   $('vol-down').onclick = () => send('volume', '?step=-5');
   $('vol-up').onclick = () => send('volume', '?step=5');
   $('mute').onclick = () => send('mute');
+  // Drag (or tap) the progress bar to jump within the song; sent on release.
+  let seekDrag = null; // seconds under the finger while dragging
+  let seekSent = null; // { pos, at } until the receiver catches up
+  const seekAt = (e) => {
+    const r = $('bar').getBoundingClientRect();
+    return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * (last?.duration || 0);
+  };
+  $('seek').addEventListener('pointerdown', (e) => {
+    if ($('seek').classList.contains('off')) return;
+    $('seek').setPointerCapture(e.pointerId);
+    $('seek').classList.add('drag');
+    seekDrag = seekAt(e);
+    render();
+  });
+  $('seek').addEventListener('pointermove', (e) => {
+    if (seekDrag === null) return;
+    seekDrag = seekAt(e);
+    render();
+  });
+  $('seek').addEventListener('pointerup', () => {
+    if (seekDrag === null) return;
+    const pos = Math.round(seekDrag);
+    seekDrag = null;
+    seekSent = { pos, at: Date.now() };
+    $('seek').classList.remove('drag');
+    send('seek', `?position=${pos}`);
+  });
+  $('seek').addEventListener('pointercancel', () => {
+    seekDrag = null;
+    $('seek').classList.remove('drag');
+    render();
+  });
+
   $('vol').addEventListener('input', () => {
     dragging = true;
     $('vol-pct').textContent = `${$('vol').value}%`;

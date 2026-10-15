@@ -43,6 +43,10 @@ const ADVANCE_WAIT_MS = 15000;
 // How often the phone is sent the playback position while playing.
 const POSITION_UPDATE_MS = 5000;
 
+// How often to check what is up next (title/artist/art for the pages, so
+// they can preload the artwork). Only looks it up when the next song changes.
+const UP_NEXT_CHECK_MS = 10000;
+
 const DRM_DEVICE = process.env.YTCR_DRM_DEVICE || '/dev/dri/card1';
 
 class Mpv {
@@ -155,6 +159,8 @@ export default class MpvPlayer extends Player {
   #screenReleased = null;
   #startPosition = 0;
   #houseTrack = null;
+  #upNext = null; // { id, title, artist, thumbnail }
+  #upNextLookup = null; // id being looked up
 
   constructor(loader, mpvOptions = {}) {
     super();
@@ -197,6 +203,36 @@ export default class MpvPlayer extends Player {
       this.notifyExternalStateChange().catch((error) =>
         this.logger.error(`[player] position update failed: ${error?.message || error}`));
     }, POSITION_UPDATE_MS);
+    setInterval(() => void this.#checkUpNext(), UP_NEXT_CHECK_MS);
+  }
+
+  // The queue's next song (or the radio suggestion at the end of the queue),
+  // looked up once while the current one plays.
+  async #checkUpNext() {
+    if (this.#playingEntry === null || this.queue.isUpdating) return;
+    const state = this.queue.getState();
+    const next = state.next || state.autoplay;
+    if (!next?.id || next.id === this.#upNext?.id || next.id === this.#upNextLookup) return;
+    this.#upNextLookup = next.id;
+    try {
+      const details = await this.#loader.getDetails(next);
+      if (details) {
+        this.#upNext = details;
+        this.logger.info(`[player] up next: "${details.title}"${details.artist ? ` - ${details.artist}` : ''}`);
+      }
+    }
+    catch (error) {
+      this.logger.warn(`[player] up-next lookup failed: ${error?.message || error}`);
+    }
+    finally {
+      this.#upNextLookup = null;
+    }
+  }
+
+  #currentUpNext() {
+    const state = this.queue.getState();
+    const id = (state.next || state.autoplay)?.id;
+    return id && this.#upNext?.id === id ? this.#upNext : null;
   }
 
   // The kiosk calls this (via HTTP) once its browser has let go of the screen.
@@ -518,6 +554,7 @@ export default class MpvPlayer extends Player {
       track: playing,
       position: playing ? await this.doGetPosition() : 0,
       duration: playing ? await this.doGetDuration() : 0,
+      next: playing ? this.#currentUpNext() : null,
       volume: this.#volume
     };
   }

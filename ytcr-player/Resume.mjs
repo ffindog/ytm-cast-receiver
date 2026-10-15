@@ -16,20 +16,31 @@ const S = Constants.PLAYER_STATUSES;
 const SAVE_EVERY_MS = 5000;
 const RESUME_WINDOW_MS = 5 * 60 * 1000;
 
+// Returns finalSave(): call it on shutdown BEFORE stopping the receiver. The
+// receiver empties the queue while it stops, and a save landing in that
+// moment recorded "nothing to resume" (lost the queue on a deploy, 2026-10-15).
 export async function restoreAndKeepSaving(player, file, logger) {
   await restore(player, file, logger);
   let lastJson = null;
-  setInterval(() => {
-    snapshot(player)
-      .then((state) => {
-        const json = JSON.stringify(state);
-        // Positions move every save; skip identical "nothing" writes.
-        if (json === lastJson && !state.current) return;
-        lastJson = json;
-        return writeFile(file, json);
-      })
-      .catch((error) => logger.warn(`[resume] save failed: ${error?.message || error}`));
+  let stopped = false;
+  const save = () => snapshot(player)
+    .then((state) => {
+      const json = JSON.stringify(state);
+      // Positions move every save; skip identical "nothing" writes.
+      if (json === lastJson && !state.current) return;
+      lastJson = json;
+      return writeFile(file, json);
+    })
+    .catch((error) => logger.warn(`[resume] save failed: ${error?.message || error}`));
+  const timer = setInterval(() => {
+    if (!stopped) void save();
   }, SAVE_EVERY_MS);
+  return async function finalSave() {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(timer);
+    await save();
+  };
 }
 
 async function snapshot(player) {

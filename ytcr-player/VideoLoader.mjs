@@ -32,6 +32,7 @@ const ITAG_TO_BITRATE = {
 export default class VideoLoader {
   #logger;
   #wrapperPromise = null;
+  #lock = Promise.resolve();
 
   constructor(logger, { region = 'AU', language = 'en' } = {}) {
     this.#logger = logger;
@@ -64,7 +65,38 @@ export default class VideoLoader {
     }
   }
 
-  async getInfo(video, abortSignal) {
+  // One lookup at a time: getInfo puts the track's sign-in token (ctt) on the
+  // shared session, so an up-next lookup must never run in the middle of one.
+  #exclusive(fn) {
+    const run = this.#lock.then(fn, fn);
+    this.#lock = run.catch(() => {});
+    return run;
+  }
+
+  getInfo(video, abortSignal) {
+    return this.#exclusive(() => this.#getInfo(video, abortSignal));
+  }
+
+  // Title, artist and art only (for "up next" and preloading the artwork):
+  // one /player request, no stream lookup, and the session is left alone.
+  getDetails(video) {
+    return this.#exclusive(async () => {
+      const innertube = await this.#innertube();
+      const response = await innertube.actions.execute('/player', {
+        videoId: video.id, racyCheckOk: true, contentCheckOk: true, client: 'YTMUSIC'
+      });
+      const d = response.data?.videoDetails;
+      if (!d) return null;
+      return {
+        id: video.id,
+        title: d.title || '',
+        artist: (d.author || '').replace(/ - Topic$/, ''),
+        thumbnail: largestThumbnail(d.thumbnail?.thumbnails)
+      };
+    });
+  }
+
+  async #getInfo(video, abortSignal) {
     const innertube = await this.#innertube();
     const checkAbort = () => {
       if (abortSignal?.aborted) {

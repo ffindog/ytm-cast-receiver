@@ -2,6 +2,7 @@
 // same way the phone does. LAN only, no login (open to the network by design).
 //
 //   POST /api/control/play-pause | play | pause | next | previous
+//   POST /api/control/seek?position=seconds
 //   POST /api/control/volume?level=0..100   or   ?step=+5 / -5
 //   POST /api/control/mute?on=1 | 0 | toggle   (default toggle)
 //
@@ -41,6 +42,13 @@ export const ACTIONS = {
   async previous(player) {
     await queueSettled(player);
     return player.previous();
+  },
+  // Jump within the current song (the control page's draggable progress bar).
+  // Like the phone's seek, it plays from there even if paused (library behaviour).
+  async seek(player, params) {
+    const position = Number(params.get('position'));
+    if (!Number.isFinite(position) || position < 0) throw new ControlError('seek needs ?position=seconds');
+    return player.seek(Math.floor(position));
   },
   async volume(player, params) {
     const current = await player.getVolume();

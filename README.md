@@ -53,7 +53,8 @@ Built for a workshop; shared as-is. Issues and ideas welcome.
 ## Control page and poor man's multi-room audio
 
 `http://<receiver>:8098/control` from any phone, tablet or PC on the LAN (no app, no login):
-now playing at the top, then **Workshop speakers** (play/pause, previous/next, volume
+now playing at the top (drag or tap the progress bar to jump within the song; "Up next"
+shows the following song, whose art is preloaded so it appears at once), then **Workshop speakers** (play/pause, previous/next, volume
 buttons and slider, mute), then **This device** (Listen here, with its own volume and mute
 for the stream only, remembered per device). It fits one screen with no scrolling: on wide
 screens the art sits left and the three sections stack on the right; on a phone held upright
@@ -79,6 +80,7 @@ now-playing JSON plus `"ok"`. The phone app and the screen follow along.
 ```bash
 curl -X POST http://<receiver>:8098/api/control/play-pause   # also: play, pause
 curl -X POST http://<receiver>:8098/api/control/next          # also: previous
+curl -X POST "http://<receiver>:8098/api/control/seek?position=90"   # seconds into the song
 curl -X POST "http://<receiver>:8098/api/control/volume?step=5"   # or ?step=-5, ?level=40
 curl -X POST "http://<receiver>:8098/api/control/mute"        # ?on=1 | 0 | toggle (default)
 ```

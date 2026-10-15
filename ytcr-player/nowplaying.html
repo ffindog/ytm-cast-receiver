@@ -62,6 +62,7 @@
   #vol-pct { font-size: 4.5vh; font-weight: bold; min-width: 11vh; text-align: right;
     font-variant-numeric: tabular-nums; }
   #volume.muted #vol-fill { background: var(--muted); }
+  img:not([src]) { visibility: hidden; } /* before the first poll */
 </style>
 </head>
 <body class="idle">
@@ -104,7 +105,11 @@
   // Position is interpolated between polls so the bar moves smoothly.
   let last = null;
   let lastAt = 0;
-  let artUrl = null;
+  // Shown when there is no artwork (an <img> with no picture is a broken tile).
+  const NO_ART = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+    + '<rect width="24" height="24" fill="#14171b"/>'
+    + '<path transform="translate(6 5.5) scale(.5)" fill="#3a4048" d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3z"/></svg>');
+  let artUrl;
   // Between tracks the receiver briefly reports stopped/loading with no track.
   // Keep the last track up ("Loading next...") for this long before standby.
   const HOLD_MS = 10000;
@@ -134,6 +139,12 @@
     if (holding) {
       $('playing').classList.add('paused');
       $('status').textContent = 'Loading next…';
+      // Show the song that is coming (its art is already preloaded).
+      if (upNext) {
+        showTrack(upNext);
+        $('fill').style.width = '0';
+        $('pos').textContent = $('dur').textContent = '0:00';
+      }
       return;
     }
     const paused = s.state === 'paused';
@@ -164,6 +175,18 @@
     volTimer = setTimeout(() => $('volume').classList.remove('on'), 3000);
   }
 
+  const preload = new Image();
+  let upNext = null; // the next song, as last reported while one was playing
+  function showTrack(t) {
+    $('title').textContent = t.title || '';
+    $('artist').textContent = t.artist || '';
+    $('album').textContent = t.album || '';
+    const art = t.thumbnail || null;
+    if (art !== artUrl) {
+      artUrl = art;
+      $('art').src = art || NO_ART;
+    }
+  }
   async function poll() {
     try {
       const res = await fetch('/api/now-playing', { cache: 'no-store' });
@@ -173,14 +196,11 @@
       showVolume(s.volume);
       if (s.track) {
         shown = true;
-        $('title').textContent = s.track.title || '';
-        $('artist').textContent = s.track.artist || '';
-        $('album').textContent = s.track.album || '';
-        if (s.track.thumbnail !== artUrl) {
-          artUrl = s.track.thumbnail;
-          $('art').src = artUrl || '';
-        }
+        showTrack(s.track);
+        upNext = s.next || null;
       }
+      // Fetch the next song's art ahead so it shows straight away.
+      if (s.next?.thumbnail && s.next.thumbnail !== preload.src) preload.src = s.next.thumbnail;
     }
     catch {
       last = null;
