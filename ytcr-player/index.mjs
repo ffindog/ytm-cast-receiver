@@ -7,6 +7,8 @@ import http from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { control, ControlError } from './Control.mjs';
+import HouseStream from './HouseStream.mjs';
+import { restoreAndKeepSaving } from './Resume.mjs';
 import MpvPlayer from './MpvPlayer.mjs';
 import { useMusicRadio } from './MusicRadio.mjs';
 import VideoLoader from './VideoLoader.mjs';
@@ -63,7 +65,11 @@ const loaderLogger = {
 // End-of-queue suggestions come from YouTube Music's radio (MusicRadio.mjs).
 if (env.YTCR_FORCE_AUTOPLAY === '1') useMusicRadio(loaderLogger);
 
+// "Listen in the house": MP3 stream of what's playing (HouseStream.mjs).
+const houseStream = new HouseStream(loaderLogger);
+
 const player = new MpvPlayer(new VideoLoader(loaderLogger), {
+  houseStream,
   audioDevice: env.YTCR_AUDIO_DEVICE,
   volumeFile: `${DATA_DIR}/volume.json`
 });
@@ -101,17 +107,28 @@ receiver.on('terminate', (error) => {
 await player.start();
 await receiver.start();
 
-// DIAL <additionalData> like a real TV's (see patch-ytcr.cjs): the YouTube
-// (cl) screen the phone should join. Off unless YTCR_DIAL_ADDITIONAL_DATA=1.
-if (env.YTCR_DIAL_ADDITIONAL_DATA === '1') {
-  const cl = await dataStore.get('mdxContext.cl');
-  if (cl?.screenId) {
+// Carry on with what was playing before a restart (Resume.mjs).
+try {
+  await restoreAndKeepSaving(player, `${DATA_DIR}/resume.json`, receiver.logger);
+}
+catch (error) {
+  receiver.logger.error(`[resume] could not restore: ${error?.message || error}`);
+}
+
+// DIAL <additionalData> like a real TV's (see patch-ytcr.cjs): which screen
+// the phone should join. Off unless YTCR_DIAL_ADDITIONAL_DATA is "1" (the
+// YouTube / cl screen) or "m" (the YouTube Music screen - tried 2026-10-15 to
+// see whether the cast menu then shows a speaker instead of a TV).
+const DIAL_THEME = { 1: 'cl', cl: 'cl', m: 'm' }[env.YTCR_DIAL_ADDITIONAL_DATA];
+if (DIAL_THEME) {
+  const ctx = await dataStore.get(`mdxContext.${DIAL_THEME}`);
+  if (ctx?.screenId) {
     const additionalData = {
-      screenId: cl.screenId, theme: 'cl', deviceId: cl.deviceId,
+      screenId: ctx.screenId, theme: DIAL_THEME, deviceId: ctx.deviceId,
       brand: env.YTCR_DEVICE_BRAND || 'RAGE', model: env.YTCR_DEVICE_MODEL || 'Workshop'
     };
     globalThis.ytcrDialAdditionalData = () => additionalData;
-    receiver.logger.info('[ytcr] DIAL additionalData on (screen for theme cl)');
+    receiver.logger.info(`[ytcr] DIAL additionalData on (screen for theme ${DIAL_THEME})`);
   }
 }
 
@@ -119,6 +136,8 @@ if (env.YTCR_DIAL_ADDITIONAL_DATA === '1') {
 // request: compose mounts the page from /opt/cast-audio, so page edits only
 // need the kiosk to reload, not a receiver restart.
 const PAGE = env.YTCR_PAGE || new URL('./nowplaying.html', import.meta.url);
+// Remote-control page for any phone or browser on the LAN (Control.mjs API).
+const CONTROL_PAGE = new URL('./control.html', import.meta.url);
 http.createServer((req, res) => {
   void (async () => {
     const url = new URL(req.url, 'http://receiver');
@@ -143,6 +162,14 @@ http.createServer((req, res) => {
       receiver.logger.info(`[control] ${controlAction}${url.search} -> ${ok ? 'ok' : 'no effect'}`);
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       res.end(JSON.stringify({ ok, ...(await player.nowPlaying()) }));
+    }
+    else if (url.pathname === '/stream.mp3' || url.pathname === '/stream') {
+      houseStream.handle(req, res);
+    }
+    else if (url.pathname === '/control' || url.pathname === '/remote') {
+      const page = await readFile(CONTROL_PAGE);
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(page);
     }
     else if (req.url === '/' || req.url === '/now-playing') {
       const page = await readFile(PAGE);

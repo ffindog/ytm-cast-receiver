@@ -154,6 +154,7 @@ export default class MpvPlayer extends Player {
   #mode = 'audio';
   #screenReleased = null;
   #startPosition = 0;
+  #houseTrack = null;
 
   constructor(loader, mpvOptions = {}) {
     super();
@@ -292,9 +293,16 @@ export default class MpvPlayer extends Player {
       this.logger.info(`[player] swap: continuing from ${from}s (phone asked for ${position || 0}s)`);
       position = from;
     }
+    // After a restart (Resume.mjs): a plain play of the restored track starts
+    // from where it was saved, once.
+    const resumeAt = this.ytcrResumeAt;
+    this.ytcrResumeAt = null;
+    if (resumeAt && resumeAt.id === video.id && !position) position = resumeAt.position;
     this.#startPosition = position || 0;
     await this.#audio.command('stop');
     this.#playingEntry = null;
+    this.#houseTrack = null;
+    this.mpvOptions.houseStream?.silence();
 
     let info;
     try {
@@ -330,6 +338,9 @@ export default class MpvPlayer extends Player {
     if (ok) {
       this.logger.info(`[player] playing ${this.#mode === 'video' ? `video (${info.videoLabel})` : 'audio'} `
         + `"${info.title}"${info.artist ? ` - ${info.artist}` : ''}`);
+      // The house stream decodes the same audio track itself (HouseStream.mjs).
+      this.#houseTrack = { url: info.streamUrl, title: info.title };
+      this.mpvOptions.houseStream?.play(info.streamUrl, position, info.title);
     }
     return ok;
   }
@@ -433,17 +444,28 @@ export default class MpvPlayer extends Player {
   }
 
   async doPause() {
+    this.mpvOptions.houseStream?.silence();
     return this.#active().set('pause', true);
   }
 
   async doResume() {
-    return this.#active().set('pause', false);
+    const ok = await this.#active().set('pause', false);
+    await this.#houseFollow();
+    return ok;
+  }
+
+  // Restart the house stream from where the speakers are (resume / seek).
+  async #houseFollow() {
+    if (!this.#houseTrack || !this.mpvOptions.houseStream) return;
+    this.mpvOptions.houseStream.play(this.#houseTrack.url, await this.doGetPosition(), this.#houseTrack.title);
   }
 
   async doStop() {
     this.#abort?.abort();
     this.#playingEntry = null;
     this.#nowPlaying = null;
+    this.#houseTrack = null;
+    this.mpvOptions.houseStream?.silence();
     await this.#stopVideo();
     await this.#audio.command('stop');
     return true;
@@ -451,6 +473,9 @@ export default class MpvPlayer extends Player {
 
   async doSeek(position) {
     const reply = await this.#active().command('seek', position, 'absolute');
+    if (reply.error === 'success' && this.#houseTrack) {
+      this.mpvOptions.houseStream?.play(this.#houseTrack.url, position, this.#houseTrack.title);
+    }
     return reply.error === 'success';
   }
 

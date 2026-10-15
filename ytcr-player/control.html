@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Workshop - Remote</title>
+<style>
+  :root {
+    --bg: #000;
+    --text: #f2f2f2;
+    --muted: #9aa3ad;
+    --line: #2a2f36;
+    --button: #14171b;
+    --accent: #ff3b3b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { background: var(--bg); color: var(--text); min-height: 100%;
+    font-family: system-ui, -apple-system, "Segoe UI", "DejaVu Sans", sans-serif; }
+  html, body { height: 100%; overflow: hidden; }
+  body { padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  /* Everything fits one screen - no scrolling. Portrait: art (shrinks to
+     fit), song details, controls. Landscape / wide: art left; controls with
+     the song details under them on the right. */
+  main { height: 100%; max-width: 1100px; margin: 0 auto; display: grid; gap: 14px;
+    grid-template-rows: auto minmax(0, 1fr) auto auto; grid-template-areas: "head" "art" "info" "controls"; }
+  header { grid-area: head; }
+  .art { grid-area: art; min-height: 0; display: flex; justify-content: center; }
+  .side { display: contents; }
+  .info { grid-area: info; display: flex; flex-direction: column; gap: 12px; }
+  .controls { grid-area: controls; display: flex; flex-direction: column; gap: 14px; }
+  @media (min-aspect-ratio: 1/1), (min-width: 760px) {
+    main { grid-template-columns: minmax(0, 1fr) minmax(300px, 420px); column-gap: 32px;
+      grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "head head" "art side"; }
+    .side { grid-area: side; display: flex; flex-direction: column; justify-content: safe center;
+      gap: 18px; min-height: 0; }
+  }
+  /* Short screens (a phone on its side): tighten everything to fit. */
+  @media (max-height: 520px) {
+    main { gap: 8px; }
+    .side, .controls, .info { gap: 8px; }
+    button { min-height: 50px; border-radius: 12px; }
+    button svg { width: 28px; height: 28px; }
+    #toggle svg { width: 34px; height: 34px; }
+    .volume { grid-template-columns: 50px 1fr 50px; }
+    .volume button { min-height: 44px; font-size: 24px; }
+    input[type=range] { height: 26px; }
+    #vol-box { gap: 2px; }
+    #mute { min-height: 38px; font-size: 15px; }
+    #error:empty { display: none; }
+    #status { margin-bottom: 2px; font-size: 12px; }
+    #title { font-size: 18px; -webkit-line-clamp: 1; }
+    #artist { font-size: 14px; margin-top: 2px; }
+    #times { font-size: 12px; }
+  }
+
+  header { display: flex; justify-content: space-between; align-items: center; color: var(--muted);
+    font-size: 15px; }
+  #name { font-weight: 600; color: var(--text); }
+  #conn::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #3fb950; margin-right: 6px; vertical-align: 1px; }
+  #conn.down::before { background: var(--accent); }
+
+  #art { height: 100%; min-height: 0; width: auto; max-width: 100%; aspect-ratio: 1; align-self: center;
+    border-radius: 14px; object-fit: cover; background: var(--button); border: 1px solid var(--line); }
+  #art.empty { object-fit: contain; }
+  #meta { flex: none; }
+  #status { font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent);
+    margin-bottom: 6px; }
+  #title { font-size: 22px; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  #artist { font-size: 16px; color: var(--muted); margin-top: 4px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+
+  #progress { flex: none; display: flex; flex-direction: column; gap: 6px; }
+  #bar { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  #fill { height: 100%; width: 0; background: var(--text); }
+  #times { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted);
+    font-variant-numeric: tabular-nums; }
+
+  .transport { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 12px; }
+  button { font: inherit; color: var(--text); background: var(--button); border: 1px solid var(--line);
+    border-radius: 16px; min-height: 68px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; touch-action: manipulation; user-select: none; }
+  button:active { background: #23282e; transform: scale(.97); }
+  button:disabled { opacity: .4; }
+  button svg { width: 34px; height: 34px; fill: currentColor; }
+  #toggle svg { width: 44px; height: 44px; }
+
+  .volume { display: grid; grid-template-columns: 64px 1fr 64px; gap: 12px; align-items: center; }
+  .volume button { min-height: 56px; font-size: 28px; font-weight: 600; }
+  #vol-box { display: flex; flex-direction: column; gap: 8px; }
+  #vol-label { display: flex; justify-content: space-between; font-size: 14px; color: var(--muted); }
+  #vol-pct { color: var(--text); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; height: 36px; accent-color: var(--text); }
+  #mute { min-height: 48px; font-size: 16px; }
+  #mute.on { border-color: var(--accent); color: var(--accent); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  #listen { min-height: 48px; font-size: 16px; }
+  #listen.on { border-color: #3fb950; color: #3fb950; }
+
+  #error { min-height: 18px; text-align: center; font-size: 14px; color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header><span id="name">Workshop</span><span id="conn">Connected</span></header>
+
+  <section class="art"><img id="art" class="empty" alt=""></section>
+
+  <div class="side">
+  <section class="controls">
+  <div class="transport">
+    <button id="prev" aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+    <button id="toggle" aria-label="Play or pause"><svg viewBox="0 0 24 24"><path id="toggle-icon" d="M8 5v14l11-7z"/></svg></button>
+    <button id="next" aria-label="Next"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zm10-12h2v12h-2z"/></svg></button>
+  </div>
+
+  <div class="volume">
+    <button id="vol-down" aria-label="Volume down">&minus;</button>
+    <div id="vol-box">
+      <div id="vol-label"><span>Volume</span><span id="vol-pct">--</span></div>
+      <input id="vol" type="range" min="0" max="100" step="1" value="0" aria-label="Volume">
+    </div>
+    <button id="vol-up" aria-label="Volume up">+</button>
+  </div>
+  <div class="row2">
+    <button id="mute">Mute</button>
+    <button id="listen">Listen here</button>
+  </div>
+  <audio id="house" preload="none"></audio>
+
+  <div id="error"></div>
+  </section>
+
+  <section class="info">
+  <div id="meta">
+    <div id="status">Nothing playing</div>
+    <div id="title">Cast from YouTube Music to start</div>
+    <div id="artist"></div>
+  </div>
+  <div id="progress">
+    <div id="bar"><div id="fill"></div></div>
+    <div id="times"><span id="pos">0:00</span><span id="dur">0:00</span></div>
+  </div>
+  </section>
+  </div>
+
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const PLAY = 'M8 5v14l11-7z';
+  const PAUSE = 'M6 5h4v14H6zm8 0h4v14h-4z';
+  const fmt = (s) => {
+    s = Math.max(0, Math.floor(s || 0));
+    const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = String(s % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+  };
+
+  let last = null;
+  let lastAt = 0;
+  let artUrl = null;
+  let dragging = false;
+  let busy = false;
+
+  function render() {
+    const s = last;
+    const active = !!(s && s.track && s.state !== 'idle');
+    const paused = active && s.state === 'paused';
+    $('status').textContent = !s ? 'Offline' : !active ? 'Nothing playing' : paused ? 'Paused' : 'Now playing';
+    if (!active) {
+      $('title').textContent = 'Cast from YouTube Music to start';
+      $('artist').textContent = '';
+      $('fill').style.width = '0';
+      $('pos').textContent = $('dur').textContent = '0:00';
+    }
+    else {
+      $('title').textContent = s.track.title || '';
+      $('artist').textContent = s.track.artist || '';
+      const pos = paused ? s.position : s.position + (Date.now() - lastAt) / 1000;
+      const dur = s.duration || 0;
+      $('pos').textContent = fmt(Math.min(pos, dur || pos));
+      $('dur').textContent = fmt(dur);
+      $('fill').style.width = dur ? `${Math.min(100, (pos / dur) * 100)}%` : '0';
+    }
+    $('toggle-icon').setAttribute('d', active && !paused ? PAUSE : PLAY);
+    // Play stays usable when nothing shows: it resumes a queue restored after
+    // a restart (or reports "Nothing to do").
+    for (const id of [ 'prev', 'next' ]) $(id).disabled = !active;
+    const art = active ? s.track.thumbnail : null;
+    if (art !== artUrl) {
+      artUrl = art;
+      $('art').src = art || '';
+      $('art').classList.toggle('empty', !art);
+    }
+    if (s?.volume) {
+      if (!dragging) $('vol').value = s.volume.muted ? 0 : s.volume.level;
+      $('vol-pct').textContent = s.volume.muted ? 'Muted' : `${s.volume.level}%`;
+      $('mute').classList.toggle('on', !!s.volume.muted);
+      $('mute').textContent = s.volume.muted ? 'Unmute' : 'Mute';
+    }
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch('/api/now-playing', { cache: 'no-store' });
+      if (!res.ok) throw new Error(res.status);
+      last = await res.json();
+      lastAt = Date.now();
+      $('conn').classList.remove('down');
+      $('conn').textContent = 'Connected';
+    }
+    catch {
+      last = null;
+      $('conn').classList.add('down');
+      $('conn').textContent = 'No connection';
+    }
+    render();
+  }
+
+  async function send(action, query = '') {
+    if (busy && action !== 'volume') return;
+    busy = true;
+    $('error').textContent = '';
+    try {
+      const res = await fetch(`/api/control/${action}${query}`, { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      if (body.ok === false && action !== 'volume') $('error').textContent = 'Nothing to do';
+      last = body;
+      lastAt = Date.now();
+      render();
+    }
+    catch (error) {
+      $('error').textContent = `Didn't work: ${error.message}`;
+    }
+    finally {
+      busy = false;
+    }
+  }
+
+  $('toggle').onclick = () => send('play-pause');
+  $('prev').onclick = () => send('previous');
+  $('next').onclick = () => send('next');
+  $('vol-down').onclick = () => send('volume', '?step=-5');
+  $('vol-up').onclick = () => send('volume', '?step=5');
+  $('mute').onclick = () => send('mute');
+
+  // "Listen here": play the receiver's live stream on this device (a few
+  // seconds behind the speakers; this device's own volume). If the stream
+  // drops (receiver restart, network blip) or stalls, reconnect by itself.
+  const RETRY_MS = 3000;
+  const STALL_MS = 8000;
+  let listening = false;
+  let retryTimer = null;
+  let lastTime = 0;
+  let lastMoved = 0;
+  function setListen(on, note) {
+    listening = on;
+    $('listen').classList.toggle('on', on);
+    $('listen').textContent = on ? 'Stop listening' : 'Listen here';
+    if (note !== undefined) $('error').textContent = note;
+  }
+  async function connect() {
+    clearTimeout(retryTimer);
+    const audio = $('house');
+    audio.src = `/stream.mp3?t=${Date.now()}`;
+    lastTime = 0;
+    lastMoved = Date.now();
+    try {
+      await audio.play();
+      if (listening) $('error').textContent = '';
+    }
+    catch (error) {
+      if (!listening) return;
+      if (error.name === 'NotAllowedError') {
+        setListen(false, 'Tap Listen here to start the sound');
+        return;
+      }
+      reconnect();
+    }
+  }
+  function reconnect() {
+    if (!listening) return;
+    $('error').textContent = 'Reconnecting…';
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(connect, RETRY_MS);
+  }
+  function stopListening() {
+    clearTimeout(retryTimer);
+    const audio = $('house');
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    setListen(false, '');
+  }
+  $('listen').onclick = () => {
+    if (listening) {
+      stopListening();
+      return;
+    }
+    setListen(true, '');
+    connect();
+  };
+  for (const ev of [ 'error', 'ended' ]) {
+    $('house').addEventListener(ev, () => reconnect());
+  }
+  // Watchdog: connected but the audio clock stopped moving -> reconnect.
+  setInterval(() => {
+    if (!listening || retryTimer && $('error').textContent) return;
+    const t = $('house').currentTime;
+    if (t !== lastTime) {
+      lastTime = t;
+      lastMoved = Date.now();
+    }
+    else if (Date.now() - lastMoved > STALL_MS) {
+      lastMoved = Date.now();
+      reconnect();
+    }
+  }, 1000);
+
+  // Slider: show the number while dragging, send once on release.
+  $('vol').addEventListener('input', () => {
+    dragging = true;
+    $('vol-pct').textContent = `${$('vol').value}%`;
+  });
+  $('vol').addEventListener('change', async () => {
+    await send('volume', `?level=${$('vol').value}`);
+    dragging = false;
+  });
+
+  poll();
+  setInterval(poll, 1000);
+  setInterval(render, 250);
+</script>
+</body>
+</html>

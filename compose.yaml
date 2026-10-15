@@ -36,7 +36,7 @@ services:
       # YTCR_CST: "m"
       # YTCR_SCREEN_APP: "lb-v4"
       # YTCR_DEVICE_BRAND / YTCR_DEVICE_MODEL / YTCR_DEVICE_OS /
-      # YTCR_DEVICE_OS_VERSION / YTCR_DEVICE_INFO (JSON) / YTCR_DIAL_ADDITIONAL_DATA: "1"
+      # YTCR_DEVICE_OS_VERSION / YTCR_DEVICE_INFO (JSON) / YTCR_DIAL_ADDITIONAL_DATA: "1" or "m"
     logging:
       driver: json-file
       options:
@@ -47,6 +47,7 @@ services:
       - ./data:/data
       # Screen page read on every request: edit it, then restart kiosk only.
       - ./ytcr-player/nowplaying.html:/app/nowplaying.html:ro
+      - ./ytcr-player/control.html:/app/control.html:ro
       - /dev/snd:/dev/snd
       # Videos play full screen via mpv's DRM output (needs a GPU + screen).
       - /dev/dri:/dev/dri

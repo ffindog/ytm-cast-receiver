@@ -41,10 +41,29 @@ Built for a workshop; shared as-is. Issues and ideas welcome.
 - **Volume** from the phone is confirmed once, 0.33 s after the last press (per-press
   confirmations made the phone's slider jump around), and is **kept across restarts**.
 - **Screen off or unplugged:** videos play as audio from the same spot instead of failing.
+- **Picks up where it left off after a restart** (deploy, crash, reboot): queue, track,
+  position and play/pause are saved every 5 s (`data/resume.json`). If it was playing less
+  than 5 minutes ago it carries straight on; otherwise the queue comes back paused and play
+  continues from the saved spot. An explicitly emptied queue stays empty (`Resume.mjs`).
 - **YouTube Music's Song/Video switch flips back to "Song"** after you choose Video. The video
   still plays; only the phone's switch is wrong. This is a **YouTube Music bug**: an LG TV with
   the official YouTube app does exactly the same. Swaps themselves are clean here: no
   "stopped" blip, instant reply, and playback continues from the same position.
+
+## Control page and "Listen here"
+
+`http://<receiver>:8098/control` from any phone, tablet or PC on the LAN (no app, no login):
+now playing, play/pause, previous/next, volume buttons and slider, mute. It fits one screen
+with no scrolling: on wide screens the art sits left with controls and song details right.
+
+**Listen here** plays a live MP3 stream of whatever the receiver is playing on that device
+(`/stream.mp3`) - e.g. to hear the workshop music in the house. It never touches the speaker
+playback: a separate ffmpeg downloads the same track ahead into memory and paces it out in
+real time to one shared encoder, with silence between tracks so players stay connected. A
+broken download resumes from where it got to; the page reconnects by itself after a dropout
+or a receiver restart. A few seconds behind the speakers; the listener's own volume. Nothing
+runs while nobody listens. (Decoding at real-time speed with `ffmpeg -re` held one slow
+connection open per track and YouTube cut it - hence the download-ahead design.)
 
 ## Control API
 
@@ -69,6 +88,9 @@ Music on iOS can't mute, so the library mutes by setting the level to 0).
 | `ytcr-player/VideoLoader.mjs` | Track → stream URLs, with the `ctt` handling (adapted from [volumio-ytcr](https://github.com/patrickkfkan/volumio-ytcr), MIT) |
 | `ytcr-player/Control.mjs` | Control API (play/pause, next/previous, volume, mute) |
 | `ytcr-player/MusicRadio.mjs` | End-of-queue suggestions from YouTube Music's radio |
+| `ytcr-player/HouseStream.mjs` | "Listen here": live MP3 stream of what's playing |
+| `ytcr-player/Resume.mjs` | Save the queue and pick up again after a restart |
+| `ytcr-player/control.html` | The control page (mounted, so edits need no receiver restart) |
 | `ytcr-player/MpvPlayer.mjs` | Player: long-running audio mpv + per-video DRM mpv, skip/volume logic |
 | `ytcr-player/patch-ytcr.cjs` | Build-time patches to yt-cast-receiver; each must match exactly once or the build fails |
 | `ytcr-player/nowplaying.html` | The screen page (mounted, so edits need only a kiosk restart) |
@@ -116,12 +138,15 @@ Notes:
 - **The browser's memory grew** to ~730 MB over hours with an earlier, blurred-backdrop page;
   the kiosk is capped (`mem_limit`) so only the screen ever restarts.
 - yt-cast-receiver's pairing needs `cst=m`; without it the phone can't connect.
+- **It shows as a TV, not a speaker, in the cast menu**, and that can't be changed from the
+  receiver: an audio-only `clientName` (`TVHTML5_AUDIO`), capabilities without `dsp`, and
+  pointing the phone at the YouTube Music lounge screen (DIAL `additionalData` theme `m`) all
+  left the TV icon. Most likely the app shows every DIAL/Lounge screen as a TV.
 
 ## Roadmap
 
 1. ~~**Control API**~~ **done** (see above). Everything below builds on it.
-2. **Browser control page**: now playing plus big controls, from any device on the network,
-   no app or login.
+2. ~~**Browser control page**~~ **done**, plus "Listen here" streaming and resume after restart.
 3. **Physical remote**: e.g. an ESP32 button remote (via an ESP-NOW bridge) or Zigbee
    buttons, calling the control API.
 4. **Idle screen content**: useful panels when nothing is playing.

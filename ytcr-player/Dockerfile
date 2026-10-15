@@ -1,7 +1,7 @@
 # Workshop YouTube Music receiver (yt-cast-receiver + mpv). See README.
 FROM node:20-bookworm
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends mpv tini \
+    && apt-get install -y --no-install-recommends mpv tini ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json ./
