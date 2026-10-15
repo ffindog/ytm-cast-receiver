@@ -101,6 +101,21 @@ Notes:
   the kiosk is capped (`mem_limit`) so only the screen ever restarts.
 - yt-cast-receiver's pairing needs `cst=m`; without it the phone can't connect.
 
+## Roadmap
+
+1. **Control API**: play/pause, next, previous, volume, mute over HTTP on the LAN (the
+   now-playing API is read-only today). Everything below builds on it.
+2. **Browser control page**: now playing plus big controls, from any device on the network,
+   no app or login.
+3. **Physical remote**: e.g. an ESP32 button remote (via an ESP-NOW bridge) or Zigbee
+   buttons, calling the control API.
+4. **Idle screen content**: useful panels when nothing is playing.
+5. **Later, optional**: an MQTT / Home Assistant link (media player entity, automations),
+   kept as an add-on so the music never depends on it.
+
+Not planned for now: starting music from the browser without a phone (casting relies on the
+phone to start the session).
+
 ## Open / ideas
 
 - One unexplained stall in testing: after the queue ended and an overnight internet dropout,
