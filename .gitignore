@@ -1,0 +1,4 @@
+# Pairing identity and saved volume (compose mounts ./data)
+data/
+node_modules/
+*.log

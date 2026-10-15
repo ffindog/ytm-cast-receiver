@@ -1,0 +1,78 @@
+services:
+  ytcr:
+    # The receiver: shows up as a TV in the YouTube / YouTube Music cast menu.
+    # Build and start with: docker compose up -d --build
+    build: ./ytcr-player
+    image: ytcr-player
+    container_name: ytcr
+    # DIAL discovery (SSDP multicast) needs the LAN, not a Docker bridge.
+    network_mode: host
+    # Share ALSA dmix with anything else on the host that plays sound.
+    ipc: host
+    restart: unless-stopped
+    environment:
+      # Name shown in the phone's cast menu.
+      YTCR_NAME: "Workshop"
+      TZ: "Australia/Brisbane"
+      YTCR_PORT: "8099"
+      # "debug" logs every YouTube message, INCLUDING the phone's per-track
+      # sign-in token - never share debug logs; go back to "info" afterwards.
+      YTCR_LOG_LEVEL: "info"
+      # Now-playing page + JSON for an optional screen (read-only, LAN).
+      YTCR_HTTP_PORT: "8098"
+      # Keep playing YouTube's suggestions when the queue runs out, even with
+      # the phone locked or away (see ytcr-player/patch-ytcr.cjs).
+      YTCR_FORCE_AUTOPLAY: "1"
+      # ALSA device for mpv (default: the system default device).
+      # YTCR_AUDIO_DEVICE: "alsa/default"
+      # DRM card mpv draws videos on (default /dev/dri/card1).
+      # YTCR_DRM_DEVICE: "/dev/dri/card1"
+      #
+      # Pairing description overrides - leave unset (library defaults). They
+      # were tried while chasing YouTube Music's Song/Video switch flipping
+      # back, which turned out to be an app bug; see README. Without cst "m"
+      # the phone cannot connect at all.
+      # YTCR_CAPABILITIES: "dsp,mic,dpa,ntb"
+      # YTCR_CST: "m"
+      # YTCR_SCREEN_APP: "lb-v4"
+      # YTCR_DEVICE_BRAND / YTCR_DEVICE_MODEL / YTCR_DEVICE_OS /
+      # YTCR_DEVICE_OS_VERSION / YTCR_DEVICE_INFO (JSON) / YTCR_DIAL_ADDITIONAL_DATA: "1"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      # Pairing identity (so the phone remembers the receiver) and saved volume.
+      - ./data:/data
+      # Screen page read on every request: edit it, then restart kiosk only.
+      - ./ytcr-player/nowplaying.html:/app/nowplaying.html:ro
+      - /dev/snd:/dev/snd
+      # Videos play full screen via mpv's DRM output (needs a GPU + screen).
+      - /dev/dri:/dev/dri
+
+  # Optional: a screen showing what's playing. Remove this service if you only
+  # want audio.
+  kiosk:
+    # Full-screen Cog (WPE WebKit) drawing straight to DRM - no desktop needed.
+    build: ./kiosk
+    image: ytcr-kiosk
+    container_name: kiosk
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - ytcr
+    shm_size: "512m"
+    # The browser's memory grew to ~730 MB over a few hours in testing; cap it
+    # so only the screen restarts, never the music.
+    mem_limit: "700m"
+    environment:
+      KIOSK_URL: "http://127.0.0.1:8098/"
+      TZ: "Australia/Brisbane"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - /dev/dri:/dev/dri

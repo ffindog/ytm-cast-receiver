@@ -1,0 +1,19 @@
+{
+  "name": "ytm-cast-receiver",
+  "version": "0.4.6",
+  "private": true,
+  "license": "MIT",
+  "description": "Cast from the YouTube Music app to a Linux box: yt-cast-receiver (YouTube TV protocol) + mpv. Plays with the phone's own per-track token (ctt), so age-restricted tracks work without cookies.",
+  "type": "module",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "volumio-yt-support": "https://raw.githubusercontent.com/patrickkfkan/volumio-ytcr/7a315b3/dep/volumio-yt-support-2.1.1.tgz",
+    "yt-cast-receiver": "https://raw.githubusercontent.com/patrickkfkan/volumio-ytcr/7a315b3/dep/yt-cast-receiver-2.1.1-volumio-ytcr.tgz"
+  }
+}

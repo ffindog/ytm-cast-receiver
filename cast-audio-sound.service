@@ -1,0 +1,16 @@
+[Unit]
+Description=Sound device prep for the cast receiver (timer perms + mixer restore)
+Before=docker.service
+After=systemd-tmpfiles-setup-dev.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The receiver runs as uid 1000 with no supplementary groups, and ALSA's
+# default (dmix) device needs the timer node. tmpfiles resets it to 0660.
+ExecStart=/bin/chmod 0666 /dev/snd/timer
+# Master comes up muted at 0% after a host boot.
+ExecStart=-/usr/sbin/alsactl --file /var/lib/alsa/asound.state restore 0
+
+[Install]
+WantedBy=multi-user.target
