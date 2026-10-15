@@ -11,96 +11,114 @@
     --text: #f2f2f2;
     --muted: #9aa3ad;
     --line: #2a2f36;
+    --panel: #0b0d10;
     --button: #14171b;
     --accent: #ff3b3b;
+    --ok: #3fb950;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  html, body { background: var(--bg); color: var(--text); min-height: 100%;
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
     font-family: system-ui, -apple-system, "Segoe UI", "DejaVu Sans", sans-serif; }
-  html, body { height: 100%; overflow: hidden; }
-  body { padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
-    max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
-  /* Everything fits one screen - no scrolling. Portrait: art (shrinks to
-     fit), song details, controls. Landscape / wide: art left; controls with
-     the song details under them on the right. */
-  main { height: 100%; max-width: 1100px; margin: 0 auto; display: grid; gap: 14px;
-    grid-template-rows: auto minmax(0, 1fr) auto auto; grid-template-areas: "head" "art" "info" "controls"; }
-  header { grid-area: head; }
+  body { padding: max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+
+  /* One screen, no scrolling. Top to bottom: now playing, workshop (remote)
+     controls, this device (local) controls. Portrait: now playing is a
+     compact row (small art + details). Wide: big art left, the three
+     sections stacked on the right. */
+  main { height: 100%; max-width: 1100px; margin: 0 auto; display: grid; gap: 28px;
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+    grid-template-areas: "head" "art" "now" "remote" "local"; }
+  header { grid-area: head; display: flex; justify-content: space-between; align-items: center;
+    color: var(--muted); font-size: 14px; }
   .art { grid-area: art; min-height: 0; display: flex; justify-content: center; }
   .side { display: contents; }
-  .info { grid-area: info; display: flex; flex-direction: column; gap: 12px; }
-  .controls { grid-area: controls; display: flex; flex-direction: column; gap: 14px; }
+  .now { grid-area: now; display: flex; flex-direction: column; gap: 8px; }
+  .remote { grid-area: remote; }
+  .local { grid-area: local; }
   @media (min-aspect-ratio: 1/1), (min-width: 760px) {
-    main { grid-template-columns: minmax(0, 1fr) minmax(300px, 420px); column-gap: 32px;
+    main { grid-template-columns: minmax(0, 1fr) minmax(320px, 440px); column-gap: 28px;
       grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "head head" "art side"; }
     .side { grid-area: side; display: flex; flex-direction: column; justify-content: safe center;
-      gap: 18px; min-height: 0; }
-  }
-  /* Short screens (a phone on its side): tighten everything to fit. */
-  @media (max-height: 520px) {
-    main { gap: 8px; }
-    .side, .controls, .info { gap: 8px; }
-    button { min-height: 50px; border-radius: 12px; }
-    button svg { width: 28px; height: 28px; }
-    #toggle svg { width: 34px; height: 34px; }
-    .volume { grid-template-columns: 50px 1fr 50px; }
-    .volume button { min-height: 44px; font-size: 24px; }
-    input[type=range] { height: 26px; }
-    #vol-box { gap: 2px; }
-    #mute { min-height: 38px; font-size: 15px; }
-    #error:empty { display: none; }
-    #status { margin-bottom: 2px; font-size: 12px; }
-    #title { font-size: 18px; -webkit-line-clamp: 1; }
-    #artist { font-size: 14px; margin-top: 2px; }
-    #times { font-size: 12px; }
+      gap: 40px; min-height: 0; }
   }
 
-  header { display: flex; justify-content: space-between; align-items: center; color: var(--muted);
-    font-size: 15px; }
   #name { font-weight: 600; color: var(--text); }
   #conn::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    background: #3fb950; margin-right: 6px; vertical-align: 1px; }
+    background: var(--ok); margin-right: 6px; vertical-align: 1px; }
   #conn.down::before { background: var(--accent); }
 
-  #art { height: 100%; min-height: 0; width: auto; max-width: 100%; aspect-ratio: 1; align-self: center;
-    border-radius: 14px; object-fit: cover; background: var(--button); border: 1px solid var(--line); }
+  #art { height: 100%; max-width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 14px;
+    background: var(--button); border: 1px solid var(--line); }
   #art.empty { object-fit: contain; }
-  #meta { flex: none; }
-  #status { font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent);
-    margin-bottom: 6px; }
-  #title { font-size: 22px; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  #artist { font-size: 16px; color: var(--muted); margin-top: 4px; white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis; }
-
-  #progress { flex: none; display: flex; flex-direction: column; gap: 6px; }
+  #status { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent); }
+  #title { font-size: 21px; font-weight: 700; line-height: 1.2; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  #artist { font-size: 15px; color: var(--muted); white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; }
   #bar { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; }
   #fill { height: 100%; width: 0; background: var(--text); }
-  #times { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted);
-    font-variant-numeric: tabular-nums; }
+  #times { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted);
+    font-variant-numeric: tabular-nums; margin-top: 4px; }
 
-  .transport { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 12px; }
+  /* Control groups */
+  .group { background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .group h2 { font-size: 12px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--muted); display: flex; justify-content: space-between; }
+  .group h2 .note { font-weight: 400; letter-spacing: 0; text-transform: none; }
   button { font: inherit; color: var(--text); background: var(--button); border: 1px solid var(--line);
-    border-radius: 16px; min-height: 68px; display: flex; align-items: center; justify-content: center;
-    cursor: pointer; touch-action: manipulation; user-select: none; }
+    border-radius: 14px; min-height: 52px; display: flex; align-items: center; justify-content: center;
+    gap: 8px; cursor: pointer; touch-action: manipulation; user-select: none; }
   button:active { background: #23282e; transform: scale(.97); }
-  button:disabled { opacity: .4; }
-  button svg { width: 34px; height: 34px; fill: currentColor; }
-  #toggle svg { width: 44px; height: 44px; }
+  button:disabled { opacity: .35; cursor: default; transform: none; }
+  button svg { width: 30px; height: 30px; fill: currentColor; }
+  .transport { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 10px; }
+  .transport button { min-height: 60px; }
+  #toggle svg { width: 40px; height: 40px; }
+  .vol { display: grid; grid-template-columns: 48px 1fr 48px auto; gap: 8px; align-items: center; }
+  .vol.nostep { grid-template-columns: 1fr auto; }
+  .vol button { min-height: 44px; font-size: 24px; font-weight: 600; }
+  .vol .mute { min-height: 44px; min-width: 76px; font-size: 14px; padding: 0 10px; }
+  .slider { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .slider .label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .slider .pct { color: var(--text); font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; height: 28px; accent-color: var(--text); }
+  input[type=range]:disabled { opacity: .35; }
+  .mute.on { border-color: var(--accent); color: var(--accent); }
+  #listen { min-height: 52px; font-size: 16px; font-weight: 600; }
+  #listen.on { border-color: var(--ok); color: var(--ok); }
+  #error { min-height: 16px; text-align: center; font-size: 13px; color: var(--accent); }
+  #error:empty { display: none; }
 
-  .volume { display: grid; grid-template-columns: 64px 1fr 64px; gap: 12px; align-items: center; }
-  .volume button { min-height: 56px; font-size: 28px; font-weight: 600; }
-  #vol-box { display: flex; flex-direction: column; gap: 8px; }
-  #vol-label { display: flex; justify-content: space-between; font-size: 14px; color: var(--muted); }
-  #vol-pct { color: var(--text); font-variant-numeric: tabular-nums; }
-  input[type=range] { width: 100%; height: 36px; accent-color: var(--text); }
-  #mute { min-height: 48px; font-size: 16px; }
-  #mute.on { border-color: var(--accent); color: var(--accent); }
-  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  #listen { min-height: 48px; font-size: 16px; }
-  #listen.on { border-color: #3fb950; color: #3fb950; }
-
-  #error { min-height: 18px; text-align: center; font-size: 14px; color: var(--accent); }
+  #thumb { display: none; width: 96px; height: 96px; border-radius: 10px; object-fit: cover;
+    background: var(--button); border: 1px solid var(--line); }
+  /* Portrait: compact now-playing row (small art beside the details). */
+  @media (max-aspect-ratio: 1/1) and (max-width: 759px) {
+    main { grid-template-rows: auto auto auto auto 1fr;
+      grid-template-areas: "head" "now" "remote" "local" "."; }
+    .art { display: none; }
+    .now { display: grid; grid-template-columns: 96px 1fr; grid-template-areas: "thumb meta" "prog prog";
+      column-gap: 12px; row-gap: 10px; align-items: center; }
+    #thumb { display: block; grid-area: thumb; }
+    #meta { grid-area: meta; min-width: 0; }
+    #progress { grid-area: prog; }
+  }
+  /* Short screens (a phone on its side): tighten; "This device" on one row. */
+  @media (max-height: 520px) {
+    main, .side { gap: 16px; }
+    .group { padding: 6px 10px 8px; gap: 6px; }
+    .local { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: end; }
+    .local h2 { grid-column: 1 / -1; }
+    #listen { padding: 0 14px; font-size: 14px; }
+    .transport button { min-height: 46px; }
+    button svg { width: 24px; height: 24px; }
+    #toggle svg { width: 30px; height: 30px; }
+    .vol button, .vol .mute, #listen { min-height: 38px; }
+    #title { font-size: 17px; -webkit-line-clamp: 1; }
+    #artist { font-size: 13px; }
+    input[type=range] { height: 22px; }
+  }
 </style>
 </head>
 <body>
@@ -110,43 +128,52 @@
   <section class="art"><img id="art" class="empty" alt=""></section>
 
   <div class="side">
-  <section class="controls">
-  <div class="transport">
-    <button id="prev" aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
-    <button id="toggle" aria-label="Play or pause"><svg viewBox="0 0 24 24"><path id="toggle-icon" d="M8 5v14l11-7z"/></svg></button>
-    <button id="next" aria-label="Next"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zm10-12h2v12h-2z"/></svg></button>
-  </div>
+    <section class="now">
+      <img id="thumb" alt="">
+      <div id="meta">
+        <div id="status">Nothing playing</div>
+        <div id="title">Cast from YouTube Music to start</div>
+        <div id="artist"></div>
+      </div>
+      <div id="progress">
+        <div id="bar"><div id="fill"></div></div>
+        <div id="times"><span id="pos">0:00</span><span id="dur">0:00</span></div>
+      </div>
+    </section>
 
-  <div class="volume">
-    <button id="vol-down" aria-label="Volume down">&minus;</button>
-    <div id="vol-box">
-      <div id="vol-label"><span>Volume</span><span id="vol-pct">--</span></div>
-      <input id="vol" type="range" min="0" max="100" step="1" value="0" aria-label="Volume">
-    </div>
-    <button id="vol-up" aria-label="Volume up">+</button>
-  </div>
-  <div class="row2">
-    <button id="mute">Mute</button>
-    <button id="listen">Listen here</button>
-  </div>
-  <audio id="house" preload="none"></audio>
+    <section class="group remote" aria-label="Workshop speakers">
+      <h2>Workshop speakers</h2>
+      <div class="transport">
+        <button id="prev" aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+        <button id="toggle" aria-label="Play or pause"><svg viewBox="0 0 24 24"><path id="toggle-icon" d="M8 5v14l11-7z"/></svg></button>
+        <button id="next" aria-label="Next"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zm10-12h2v12h-2z"/></svg></button>
+      </div>
+      <div class="vol">
+        <button id="vol-down" aria-label="Workshop volume down">&minus;</button>
+        <div class="slider">
+          <div class="label"><span>Volume</span><span class="pct" id="vol-pct">--</span></div>
+          <input id="vol" type="range" min="0" max="100" step="1" value="0" aria-label="Workshop volume">
+        </div>
+        <button id="vol-up" aria-label="Workshop volume up">+</button>
+        <button id="mute" class="mute">Mute</button>
+      </div>
+    </section>
 
-  <div id="error"></div>
-  </section>
+    <section class="group local" aria-label="This device">
+      <h2>This device <span class="note" id="local-note">poor man's multi-room audio</span></h2>
+      <button id="listen">Listen here</button>
+      <div class="vol nostep">
+        <div class="slider">
+          <div class="label"><span>Volume</span><span class="pct" id="lvol-pct">--</span></div>
+          <input id="lvol" type="range" min="0" max="100" step="1" value="100" aria-label="Volume on this device">
+        </div>
+        <button id="lmute" class="mute">Mute</button>
+      </div>
+      <audio id="house" preload="none"></audio>
+    </section>
 
-  <section class="info">
-  <div id="meta">
-    <div id="status">Nothing playing</div>
-    <div id="title">Cast from YouTube Music to start</div>
-    <div id="artist"></div>
+    <div id="error"></div>
   </div>
-  <div id="progress">
-    <div id="bar"><div id="fill"></div></div>
-    <div id="times"><span id="pos">0:00</span><span id="dur">0:00</span></div>
-  </div>
-  </section>
-  </div>
-
 </main>
 
 <script>
@@ -158,7 +185,12 @@
     const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = String(s % 60).padStart(2, '0');
     return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
   };
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
 
+  // ---------- Now playing + workshop (remote) controls ----------
   let last = null;
   let lastAt = 0;
   let artUrl = null;
@@ -192,8 +224,11 @@
     const art = active ? s.track.thumbnail : null;
     if (art !== artUrl) {
       artUrl = art;
-      $('art').src = art || '';
-      $('art').classList.toggle('empty', !art);
+      for (const id of [ 'art', 'thumb' ]) {
+        $(id).src = art || '';
+        $(id).classList.toggle('empty', !art);
+      }
+      updateMediaSession();
     }
     if (s?.volume) {
       if (!dragging) $('vol').value = s.volume.muted ? 0 : s.volume.level;
@@ -207,8 +242,10 @@
     try {
       const res = await fetch('/api/now-playing', { cache: 'no-store' });
       if (!res.ok) throw new Error(res.status);
+      const prevTitle = last?.track?.title;
       last = await res.json();
       lastAt = Date.now();
+      if (last?.track?.title !== prevTitle) updateMediaSession();
       $('conn').classList.remove('down');
       $('conn').textContent = 'Connected';
     }
@@ -247,27 +284,69 @@
   $('vol-down').onclick = () => send('volume', '?step=-5');
   $('vol-up').onclick = () => send('volume', '?step=5');
   $('mute').onclick = () => send('mute');
+  $('vol').addEventListener('input', () => {
+    dragging = true;
+    $('vol-pct').textContent = `${$('vol').value}%`;
+  });
+  $('vol').addEventListener('change', async () => {
+    await send('volume', `?level=${$('vol').value}`);
+    dragging = false;
+  });
 
-  // "Listen here" - poor man's multi-room audio: play the receiver's live
-  // stream on this device (a few
-  // seconds behind the speakers; this device's own volume). If the stream
-  // drops (receiver restart, network blip) or stalls, reconnect by itself.
+  // ---------- This device (local): poor man's multi-room audio ----------
+  // "Listen here" plays the receiver's live stream on this device: a few
+  // seconds behind the speakers, with this device's own volume. Reconnects by
+  // itself after a dropout or receiver restart.
   const RETRY_MS = 3000;
   const STALL_MS = 8000;
+  const audio = $('house');
   let listening = false;
   let retryTimer = null;
   let lastTime = 0;
   let lastMoved = 0;
+
+  // iOS Safari ignores audio.volume (hardware buttons only); detect that.
+  const canSetVolume = (() => {
+    try { const a = new Audio(); a.volume = 0.5; return a.volume === 0.5; } catch { return false; }
+  })();
+  let localVolume = store.get('ytcr.localVolume', 100);
+  let localMuted = store.get('ytcr.localMuted', false);
+  function applyLocal() {
+    audio.volume = canSetVolume ? localVolume / 100 : 1;
+    audio.muted = localMuted;
+    $('lvol').value = localVolume;
+    $('lvol-pct').textContent = localMuted ? 'Muted' : canSetVolume ? `${localVolume}%` : 'Phone buttons';
+    $('lmute').classList.toggle('on', localMuted);
+    $('lmute').textContent = localMuted ? 'Unmute' : 'Mute';
+    $('lvol').disabled = !listening || !canSetVolume;
+    $('lmute').disabled = !listening;
+  }
+  $('lvol').addEventListener('input', () => {
+    localVolume = Number($('lvol').value);
+    if (localMuted && localVolume > 0) localMuted = false;
+    store.set('ytcr.localVolume', localVolume);
+    store.set('ytcr.localMuted', localMuted);
+    applyLocal();
+  });
+  $('lmute').onclick = () => {
+    localMuted = !localMuted;
+    store.set('ytcr.localMuted', localMuted);
+    applyLocal();
+  };
+
   function setListen(on, note) {
     listening = on;
     $('listen').classList.toggle('on', on);
     $('listen').textContent = on ? 'Stop listening' : 'Listen here';
+    $('local-note').textContent = on ? 'a few seconds behind the speakers' : "poor man's multi-room audio";
     if (note !== undefined) $('error').textContent = note;
+    applyLocal();
+    updateMediaSession();
   }
   async function connect() {
     clearTimeout(retryTimer);
-    const audio = $('house');
     audio.src = `/stream.mp3?t=${Date.now()}`;
+    applyLocal();
     lastTime = 0;
     lastMoved = Date.now();
     try {
@@ -291,7 +370,6 @@
   }
   function stopListening() {
     clearTimeout(retryTimer);
-    const audio = $('house');
     audio.pause();
     audio.removeAttribute('src');
     audio.load();
@@ -305,13 +383,11 @@
     setListen(true, '');
     connect();
   };
-  for (const ev of [ 'error', 'ended' ]) {
-    $('house').addEventListener(ev, () => reconnect());
-  }
+  for (const ev of [ 'error', 'ended' ]) audio.addEventListener(ev, () => reconnect());
   // Watchdog: connected but the audio clock stopped moving -> reconnect.
   setInterval(() => {
-    if (!listening || retryTimer && $('error').textContent) return;
-    const t = $('house').currentTime;
+    if (!listening || $('error').textContent === 'Reconnecting…') return;
+    const t = audio.currentTime;
     if (t !== lastTime) {
       lastTime = t;
       lastMoved = Date.now();
@@ -322,16 +398,31 @@
     }
   }, 1000);
 
-  // Slider: show the number while dragging, send once on release.
-  $('vol').addEventListener('input', () => {
-    dragging = true;
-    $('vol-pct').textContent = `${$('vol').value}%`;
-  });
-  $('vol').addEventListener('change', async () => {
-    await send('volume', `?level=${$('vol').value}`);
-    dragging = false;
-  });
+  // Lock screen / notification: song + art while listening. Play/pause there
+  // is this device's stream; next/previous skip the workshop.
+  function updateMediaSession() {
+    if (!('mediaSession' in navigator)) return;
+    if (!listening) {
+      navigator.mediaSession.metadata = null;
+      return;
+    }
+    const t = last?.track;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: t?.title || 'Workshop',
+      artist: t?.artist || 'Workshop',
+      album: 'Workshop',
+      artwork: t?.thumbnail ? [ { src: t.thumbnail, sizes: '1200x1200', type: 'image/jpeg' } ] : []
+    });
+  }
+  if ('mediaSession' in navigator) {
+    const ms = navigator.mediaSession;
+    ms.setActionHandler('play', () => { if (!listening) $('listen').click(); else audio.play(); });
+    ms.setActionHandler('pause', () => { if (listening) stopListening(); });
+    ms.setActionHandler('nexttrack', () => send('next'));
+    ms.setActionHandler('previoustrack', () => send('previous'));
+  }
 
+  applyLocal();
   poll();
   setInterval(poll, 1000);
   setInterval(render, 250);

@@ -53,8 +53,13 @@ Built for a workshop; shared as-is. Issues and ideas welcome.
 ## Control page and poor man's multi-room audio
 
 `http://<receiver>:8098/control` from any phone, tablet or PC on the LAN (no app, no login):
-now playing, play/pause, previous/next, volume buttons and slider, mute. It fits one screen
-with no scrolling: on wide screens the art sits left with controls and song details right.
+now playing at the top, then **Workshop speakers** (play/pause, previous/next, volume
+buttons and slider, mute), then **This device** (Listen here, with its own volume and mute
+for the stream only, remembered per device). It fits one screen with no scrolling: on wide
+screens the art sits left and the three sections stack on the right; on a phone held upright
+the art shrinks to a thumbnail beside the song. While listening, the phone's lock screen
+shows the song and art (pause stops the stream; skip skips the workshop). iPhones ignore a
+page's volume setting, so there the local slider defers to the phone's buttons.
 
 **Poor man's multi-room audio:** the page's **Listen here** button plays a live MP3 stream of
 whatever the receiver is playing on that device
@@ -91,7 +96,7 @@ Music on iOS can't mute, so the library mutes by setting the level to 0).
 | `ytcr-player/MusicRadio.mjs` | End-of-queue suggestions from YouTube Music's radio |
 | `ytcr-player/HouseStream.mjs` | Poor man's multi-room audio: live MP3 stream of what's playing |
 | `ytcr-player/Resume.mjs` | Save the queue and pick up again after a restart |
-| `ytcr-player/control.html` | The control page (mounted, so edits need no receiver restart) |
+| `ytcr-player/control.html` | The control page (mounted, so edits need no receiver restart - but overwrite the file in place; replacing it leaves the container on the old copy until restarted) |
 | `ytcr-player/MpvPlayer.mjs` | Player: long-running audio mpv + per-video DRM mpv, skip/volume logic |
 | `ytcr-player/patch-ytcr.cjs` | Build-time patches to yt-cast-receiver; each must match exactly once or the build fails |
 | `ytcr-player/nowplaying.html` | The screen page (mounted, so edits need only a kiosk restart) |
