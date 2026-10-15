@@ -65,7 +65,7 @@ const loaderLogger = {
 // End-of-queue suggestions come from YouTube Music's radio (MusicRadio.mjs).
 if (env.YTCR_FORCE_AUTOPLAY === '1') useMusicRadio(loaderLogger);
 
-// "Listen in the house": MP3 stream of what's playing (HouseStream.mjs).
+// Poor man's multi-room audio: MP3 stream of what's playing (HouseStream.mjs).
 const houseStream = new HouseStream(loaderLogger);
 
 const player = new MpvPlayer(new VideoLoader(loaderLogger), {

@@ -1,4 +1,5 @@
-// "Listen in the house": a continuous MP3 stream of whatever the receiver is
+// Poor man's multi-room audio ("Listen here" on the control page): a
+// continuous MP3 stream of whatever the receiver is
 // playing, for any browser on the LAN (GET /stream.mp3).
 //
 // It never touches the speaker playback. A separate ffmpeg downloads and

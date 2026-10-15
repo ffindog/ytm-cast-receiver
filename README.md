@@ -50,13 +50,14 @@ Built for a workshop; shared as-is. Issues and ideas welcome.
   the official YouTube app does exactly the same. Swaps themselves are clean here: no
   "stopped" blip, instant reply, and playback continues from the same position.
 
-## Control page and "Listen here"
+## Control page and poor man's multi-room audio
 
 `http://<receiver>:8098/control` from any phone, tablet or PC on the LAN (no app, no login):
 now playing, play/pause, previous/next, volume buttons and slider, mute. It fits one screen
 with no scrolling: on wide screens the art sits left with controls and song details right.
 
-**Listen here** plays a live MP3 stream of whatever the receiver is playing on that device
+**Poor man's multi-room audio:** the page's **Listen here** button plays a live MP3 stream of
+whatever the receiver is playing on that device
 (`/stream.mp3`) - e.g. to hear the workshop music in the house. It never touches the speaker
 playback: a separate ffmpeg downloads the same track ahead into memory and paces it out in
 real time to one shared encoder, with silence between tracks so players stay connected. A
@@ -88,7 +89,7 @@ Music on iOS can't mute, so the library mutes by setting the level to 0).
 | `ytcr-player/VideoLoader.mjs` | Track → stream URLs, with the `ctt` handling (adapted from [volumio-ytcr](https://github.com/patrickkfkan/volumio-ytcr), MIT) |
 | `ytcr-player/Control.mjs` | Control API (play/pause, next/previous, volume, mute) |
 | `ytcr-player/MusicRadio.mjs` | End-of-queue suggestions from YouTube Music's radio |
-| `ytcr-player/HouseStream.mjs` | "Listen here": live MP3 stream of what's playing |
+| `ytcr-player/HouseStream.mjs` | Poor man's multi-room audio: live MP3 stream of what's playing |
 | `ytcr-player/Resume.mjs` | Save the queue and pick up again after a restart |
 | `ytcr-player/control.html` | The control page (mounted, so edits need no receiver restart) |
 | `ytcr-player/MpvPlayer.mjs` | Player: long-running audio mpv + per-video DRM mpv, skip/volume logic |
@@ -146,7 +147,7 @@ Notes:
 ## Roadmap
 
 1. ~~**Control API**~~ **done** (see above). Everything below builds on it.
-2. ~~**Browser control page**~~ **done**, plus "Listen here" streaming and resume after restart.
+2. ~~**Browser control page**~~ **done**, plus poor man's multi-room audio (a live stream to any browser) and resume after restart.
 3. **Physical remote**: e.g. an ESP32 button remote (via an ESP-NOW bridge) or Zigbee
    buttons, calling the control API.
 4. **Idle screen content**: useful panels when nothing is playing.

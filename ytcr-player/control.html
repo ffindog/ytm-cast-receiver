@@ -248,7 +248,8 @@
   $('vol-up').onclick = () => send('volume', '?step=5');
   $('mute').onclick = () => send('mute');
 
-  // "Listen here": play the receiver's live stream on this device (a few
+  // "Listen here" - poor man's multi-room audio: play the receiver's live
+  // stream on this device (a few
   // seconds behind the speakers; this device's own volume). If the stream
   // drops (receiver restart, network blip) or stalls, reconnect by itself.
   const RETRY_MS = 3000;
