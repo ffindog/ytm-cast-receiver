@@ -5,7 +5,8 @@ and optionally a screen. It shows up in the app's cast menu like a smart TV, pla
 the box's sound card, and **keeps playing when the phone is locked, out of range or off
 Wi-Fi**. Age-restricted tracks play too, with no cookies or sign-in on the box.
 
-**Status:** working, in daily use since October 2026 (one receiver, iPhone + YouTube Music).
+**Status: work in progress.** It works and is in daily use (since October 2026, one receiver,
+iPhone + YouTube Music), but it's still being soak-tested and changed, so expect rough edges.
 Built for a workshop; shared as-is. Issues and ideas welcome.
 
 ## How it works
