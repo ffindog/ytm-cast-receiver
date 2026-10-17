@@ -19,7 +19,7 @@ RUN f=node_modules/yt-cast-receiver/dist/lib/app/BindParams.js \
 # Song/Video switch fixes (see patch-ytcr.cjs).
 COPY patch-ytcr.cjs ./
 RUN node patch-ytcr.cjs
-COPY *.mjs *.html ./
+COPY *.mjs *.html *.py ./
 # uid 1000; /dev/snd is passed in world-writable by the CT config.
 USER node
 ENV YTCR_DATA_DIR=/data

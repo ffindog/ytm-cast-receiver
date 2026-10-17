@@ -20,6 +20,7 @@
     font-family: "DejaVu Sans", system-ui, sans-serif; overflow: hidden; cursor: none; }
   #clock { position: fixed; top: 3vh; right: 4vw; font-size: 4vh; color: var(--muted);
     font-variant-numeric: tabular-nums; z-index: 2; }
+  #date { position: fixed; top: 3vh; left: 4vw; font-size: 4vh; color: var(--muted); z-index: 2; }
   .screen { position: relative; z-index: 1; height: 100%; display: none; }
   .screen.on { display: flex; }
 
@@ -28,8 +29,13 @@
   #art { width: 62vh; height: 62vh; flex: none; border-radius: 2vh; object-fit: cover;
     background: var(--panel); }
   #info { flex: 1; min-width: 0; }
-  #status { font-size: 2.6vh; letter-spacing: .4vh; text-transform: uppercase; color: var(--accent);
-    margin-bottom: 2.5vh; }
+  #status-row { display: flex; align-items: center; gap: 2.5vh; margin-bottom: 2.5vh; }
+  #status { font-size: 2.6vh; letter-spacing: .4vh; text-transform: uppercase; color: var(--accent); }
+  /* Loop (repeat this song) is on: set from the control page or the remote. */
+  #repeat { display: none; align-items: center; gap: .8vh; font-size: 2.6vh; letter-spacing: .4vh;
+    text-transform: uppercase; color: #3fb950; }
+  #repeat.on { display: inline-flex; }
+  #repeat svg { width: 3.4vh; height: 3.4vh; fill: currentColor; }
   #title { font-size: 8vh; font-weight: bold; line-height: 1.1; margin-bottom: 2vh;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   #artist { font-size: 4.5vh; color: var(--text); opacity: .9; margin-bottom: 1vh;
@@ -49,7 +55,7 @@
   #idle-date { font-size: 4vh; color: var(--muted); margin-top: 1vh; }
   #idle-hint { font-size: 3.2vh; color: var(--muted); margin-top: 8vh; }
   #idle-hint b { color: var(--text); }
-  body.idle #clock { display: none; }
+  body.idle #clock, body.idle #date { display: none; }
 
   /* Volume: shown for a few seconds after it changes. Black behind the text (see :root). */
   #volume { position: fixed; left: 50%; bottom: 7vh; transform: translateX(-50%); z-index: 3;
@@ -66,12 +72,13 @@
 </style>
 </head>
 <body class="idle">
+<div id="date"></div>
 <div id="clock"></div>
 
 <section id="playing" class="screen">
   <img id="art" alt="">
   <div id="info">
-    <div id="status">Now playing</div>
+    <div id="status-row"><span id="status">Now playing</span><span id="repeat"><svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z"/></svg>Repeat</span></div>
     <div id="title"></div>
     <div id="artist"></div>
     <div id="album"></div>
@@ -121,6 +128,9 @@
     const t = now.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' });
     $('clock').textContent = t;
     $('idle-clock').textContent = t;
+    // "Sat 17 Oct" (built by hand: browsers' short formats vary, e.g. "Sept", commas).
+    $('date').textContent = `${'Sun Mon Tue Wed Thu Fri Sat'.split(' ')[now.getDay()]} ${now.getDate()} `
+      + 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ')[now.getMonth()];
     $('idle-date').textContent = now.toLocaleDateString('en-AU',
       { weekday: 'long', day: 'numeric', month: 'long' });
   }
@@ -148,6 +158,7 @@
       return;
     }
     const paused = s.state === 'paused';
+    $('repeat').classList.toggle('on', !!s.loop);
     $('playing').classList.toggle('paused', paused);
     $('status').textContent = paused ? 'Paused' : 'Now playing';
     const pos = paused ? s.position : s.position + (Date.now() - lastAt) / 1000;

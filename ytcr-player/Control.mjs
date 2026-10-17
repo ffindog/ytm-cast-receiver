@@ -3,6 +3,7 @@
 //
 //   POST /api/control/play-pause | play | pause | next | previous
 //   POST /api/control/seek?position=seconds
+//   POST /api/control/loop?on=1 | 0 | toggle   (repeat the current song)
 //   POST /api/control/volume?level=0..100   or   ?step=+5 / -5
 //   POST /api/control/mute?on=1 | 0 | toggle   (default toggle)
 //
@@ -49,6 +50,12 @@ export const ACTIONS = {
     const position = Number(params.get('position'));
     if (!Number.isFinite(position) || position < 0) throw new ControlError('seek needs ?position=seconds');
     return player.seek(Math.floor(position));
+  },
+  // Repeat the current song: ?on=1 | 0 | toggle (default toggle).
+  async loop(player, params) {
+    const on = params.get('on') ?? 'toggle';
+    player.setLoop(on === 'toggle' ? !player.loop : on === '1' || on === 'true');
+    return true;
   },
   async volume(player, params) {
     const current = await player.getVolume();

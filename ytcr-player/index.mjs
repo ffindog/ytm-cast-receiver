@@ -8,6 +8,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { control, ControlError } from './Control.mjs';
 import HouseStream from './HouseStream.mjs';
+import Remote from './Remote.mjs';
 import { restoreAndKeepSaving } from './Resume.mjs';
 import MpvPlayer from './MpvPlayer.mjs';
 import { useMusicRadio } from './MusicRadio.mjs';
@@ -116,6 +117,13 @@ catch (error) {
   receiver.logger.error(`[resume] could not restore: ${error?.message || error}`);
 }
 
+// IR remote through a USB-UIRT (Remote.mjs), when one is configured.
+let remote = null;
+if (env.YTCR_REMOTE_DEVICE) {
+  remote = new Remote(player, { device: env.YTCR_REMOTE_DEVICE, file: `${DATA_DIR}/remote.json`, logger: receiver.logger });
+  await remote.start();
+}
+
 // DIAL <additionalData> like a real TV's (see patch-ytcr.cjs): which screen
 // the phone should join. Off unless YTCR_DIAL_ADDITIONAL_DATA is "1" (the
 // YouTube / cl screen) or "m" (the YouTube Music screen - tried 2026-10-15 to
@@ -163,6 +171,27 @@ http.createServer((req, res) => {
       receiver.logger.info(`[control] ${controlAction}${url.search} -> ${ok ? 'ok' : 'no effect'}`);
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       res.end(JSON.stringify({ ok, ...(await player.nowPlaying()) }));
+    }
+    else if (url.pathname.startsWith('/api/remote')) {
+      // Remote button teaching (control page). GET = state; POST learn /
+      // cancel / clear with ?action=<key>.
+      const json = (code, body) => {
+        res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        res.end(JSON.stringify(body));
+      };
+      if (!remote) return json(200, { enabled: false });
+      const op = url.pathname.slice('/api/remote'.length);
+      if (op && req.method !== 'POST') return json(405, { error: 'POST only' });
+      try {
+        if (op === '/learn') remote.learn(url.searchParams.get('action'));
+        else if (op === '/cancel') remote.cancelLearn();
+        else if (op === '/clear') await remote.clear(url.searchParams.get('action'));
+        else if (op) return json(404, { error: 'unknown' });
+      }
+      catch (error) {
+        return json(400, { error: error.message });
+      }
+      json(200, { enabled: true, ...remote.state() });
     }
     else if (url.pathname === '/stream.mp3' || url.pathname === '/stream') {
       houseStream.handle(req, res);

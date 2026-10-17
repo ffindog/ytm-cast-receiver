@@ -47,6 +47,28 @@
   #conn::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
     background: var(--ok); margin-right: 6px; vertical-align: 1px; }
   #conn.down::before { background: var(--accent); }
+  header .right { display: flex; align-items: center; gap: 14px; }
+  #remote-open { min-height: 0; padding: 4px 10px; font-size: 13px; border-radius: 8px; color: var(--muted); }
+  #remote-open[hidden] { display: none; }
+
+  /* Remote button teaching panel (over the page; scrolls if it must). */
+  #remote { position: fixed; inset: 0; background: var(--bg); z-index: 10; overflow-y: auto;
+    padding: max(14px, env(safe-area-inset-top)) 16px 20px; }
+  #remote[hidden] { display: none; }
+  #remote .inner { max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+  #remote .top { display: flex; justify-content: space-between; align-items: center; }
+  #remote h1 { font-size: 20px; }
+  #remote .top button { min-height: 40px; padding: 0 16px; }
+  #remote .hint { color: var(--muted); font-size: 14px; line-height: 1.4; }
+  #remote .status { font-size: 14px; }
+  #remote .status.down { color: var(--accent); }
+  .ract { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; }
+  .ract .name { font-weight: 600; }
+  .ract .set { font-size: 13px; color: var(--muted); }
+  .ract .set.ok { color: var(--ok); }
+  .ract button { min-height: 40px; padding: 0 14px; font-size: 14px; }
+  .ract.learning { border-color: var(--ok); }
 
   #art { height: 100%; max-width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 14px;
     background: var(--button); border: 1px solid var(--line); }
@@ -84,9 +106,12 @@
   button:disabled { opacity: .35; cursor: default; transform: none; }
   button svg { width: 30px; height: 30px; fill: currentColor; }
   .transport { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 10px; }
+  #loop.on { border-color: var(--ok); color: var(--ok); }
   .transport button { min-height: 60px; }
   #toggle svg { width: 40px; height: 40px; }
-  .vol { display: grid; grid-template-columns: 48px 1fr 48px auto; gap: 8px; align-items: center; }
+  .vol { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
+  #loop { min-height: 44px; min-width: 56px; }
+  #loop svg { width: 26px; height: 26px; }
   .vol.nostep { grid-template-columns: 1fr auto; }
   .vol button { min-height: 44px; font-size: 24px; font-weight: 600; }
   .vol .mute { min-height: 44px; min-width: 76px; font-size: 14px; padding: 0 10px; }
@@ -124,7 +149,7 @@
     .transport button { min-height: 46px; }
     button svg { width: 24px; height: 24px; }
     #toggle svg { width: 30px; height: 30px; }
-    .vol button, .vol .mute, #listen { min-height: 38px; }
+    .vol button, .vol .mute, #listen, #loop { min-height: 38px; }
     #title { font-size: 21px; -webkit-line-clamp: 1; }
     #artist { font-size: 15px; }
     #status { font-size: 12px; }
@@ -135,7 +160,7 @@
 </head>
 <body>
 <main>
-  <header><span id="name">Workshop</span><span id="conn">Connected</span></header>
+  <header><span id="name">Workshop</span><span class="right"><button id="remote-open" hidden>Remote</button><span id="conn">Connected</span></span></header>
 
   <section class="art"><img id="art" class="empty" alt=""></section>
 
@@ -161,12 +186,11 @@
         <button id="next" aria-label="Next"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6zm10-12h2v12h-2z"/></svg></button>
       </div>
       <div class="vol">
-        <button id="vol-down" aria-label="Workshop volume down">&minus;</button>
         <div class="slider">
           <div class="label"><span>Volume</span><span class="pct" id="vol-pct">--</span></div>
           <input id="vol" type="range" min="0" max="100" step="1" value="0" aria-label="Workshop volume">
         </div>
-        <button id="vol-up" aria-label="Workshop volume up">+</button>
+        <button id="loop" aria-label="Repeat this song" aria-pressed="false" title="Repeat this song"><svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z"/></svg></button>
         <button id="mute" class="mute">Mute</button>
       </div>
     </section>
@@ -187,6 +211,16 @@
     <div id="error"></div>
   </div>
 </main>
+
+<section id="remote" hidden aria-label="Remote buttons">
+  <div class="inner">
+    <div class="top"><h1>Remote buttons</h1><button id="remote-close">Done</button></div>
+    <p class="hint">Point any spare remote at the IR receiver. Tap <b>Teach</b>, then press the
+      button you want for that action. An action can have buttons from more than one remote.</p>
+    <div class="status" id="remote-status"></div>
+    <div id="remote-list"></div>
+  </div>
+</section>
 
 <script>
   const $ = (id) => document.getElementById(id);
@@ -263,7 +297,11 @@
       $('knob').style.left = pct;
     }
     const next = active ? s.next : null;
-    $('upnext').textContent = next ? `Up next: ${next.title}${next.artist ? ` – ${next.artist}` : ''}` : '';
+    const looping = active && !!s.loop;
+    $('loop').classList.toggle('on', !!s?.loop);
+    $('loop').setAttribute('aria-pressed', String(!!s?.loop));
+    $('upnext').textContent = looping ? 'Repeating this song'
+      : next ? `Up next: ${next.title}${next.artist ? ` – ${next.artist}` : ''}` : '';
     // Fetch the next song's art ahead so it shows straight away.
     if (next?.thumbnail && next.thumbnail !== preload.src) preload.src = next.thumbnail;
     $('toggle-icon').setAttribute('d', active && !paused ? PAUSE : PLAY);
@@ -330,8 +368,7 @@
   $('toggle').onclick = () => send('play-pause');
   $('prev').onclick = () => send('previous');
   $('next').onclick = () => send('next');
-  $('vol-down').onclick = () => send('volume', '?step=-5');
-  $('vol-up').onclick = () => send('volume', '?step=5');
+  $('loop').onclick = () => send('loop');
   $('mute').onclick = () => send('mute');
   // Drag (or tap) the progress bar to jump within the song; sent on release.
   let seekDrag = null; // seconds under the finger while dragging
@@ -503,6 +540,54 @@
     ms.setActionHandler('nexttrack', () => send('next'));
     ms.setActionHandler('previoustrack', () => send('previous'));
   }
+
+  // ---------- Remote buttons (IR remote via the receiver's USB-UIRT) ----------
+  let remoteTimer = null;
+  async function remoteCall(op = '', action = '') {
+    const res = await fetch(`/api/remote${op}${action ? `?action=${action}` : ''}`,
+      { method: op ? 'POST' : 'GET', cache: 'no-store' });
+    return res.json();
+  }
+  function renderRemote(r) {
+    $('remote-status').textContent = r.connected ? (r.learning ? 'Press the button on the remote now…' : 'Receiver connected')
+      : 'IR receiver not found - is it plugged in?';
+    $('remote-status').classList.toggle('down', !r.connected);
+    $('remote-list').replaceChildren(...r.actions.map((a) => {
+      const row = document.createElement('div');
+      row.className = `ract${r.learning === a.key ? ' learning' : ''}`;
+      const info = document.createElement('div');
+      info.innerHTML = '<div class="name"></div><div class="set"></div>';
+      info.querySelector('.name').textContent = a.label;
+      const set = info.querySelector('.set');
+      set.textContent = r.learning === a.key ? 'Waiting for a button…'
+        : a.buttons ? `${a.buttons} button${a.buttons > 1 ? 's' : ''}` : 'Not set';
+      set.classList.toggle('ok', a.buttons > 0);
+      const teach = document.createElement('button');
+      teach.textContent = r.learning === a.key ? 'Cancel' : 'Teach';
+      teach.onclick = async () => renderRemote(await remoteCall(r.learning === a.key ? '/cancel' : '/learn', a.key));
+      const clear = document.createElement('button');
+      clear.textContent = 'Clear';
+      clear.disabled = !a.buttons;
+      clear.onclick = async () => renderRemote(await remoteCall('/clear', a.key));
+      row.append(info, teach, clear);
+      return row;
+    }));
+  }
+  async function refreshRemote() {
+    try { renderRemote(await remoteCall()); } catch {}
+  }
+  $('remote-open').onclick = () => {
+    $('remote').hidden = false;
+    refreshRemote();
+    remoteTimer = setInterval(refreshRemote, 1000);
+  };
+  $('remote-close').onclick = () => {
+    $('remote').hidden = true;
+    clearInterval(remoteTimer);
+    remoteCall('/cancel').catch(() => {});
+  };
+  // The Remote button only shows when the receiver has an IR receiver set up.
+  remoteCall().then((r) => { $('remote-open').hidden = !r.enabled; }).catch(() => {});
 
   applyLocal();
   poll();

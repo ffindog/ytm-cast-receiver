@@ -23,6 +23,9 @@ services:
       # Keep playing YouTube's suggestions when the queue runs out, even with
       # the phone locked or away (see ytcr-player/patch-ytcr.cjs).
       YTCR_FORCE_AUTOPLAY: "1"
+      # Optional IR remote: a USB-UIRT passed in below; buttons are taught on the
+      # control page (Remote). Leave unset without one.
+      # YTCR_REMOTE_DEVICE: "/dev/usb-uirt"
       # ALSA device for mpv (default: the system default device).
       # YTCR_AUDIO_DEVICE: "alsa/default"
       # DRM card mpv draws videos on (default /dev/dri/card1).
@@ -49,6 +52,7 @@ services:
       - ./ytcr-player/nowplaying.html:/app/nowplaying.html:ro
       - ./ytcr-player/control.html:/app/control.html:ro
       - /dev/snd:/dev/snd
+      # - /dev/serial/by-id/usb-FTDI_USB-UIRT-if00-port0:/dev/usb-uirt   # IR remote
       # Videos play full screen via mpv's DRM output (needs a GPU + screen).
       - /dev/dri:/dev/dri
 

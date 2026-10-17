@@ -55,7 +55,7 @@ Built for a workshop; shared as-is. Issues and ideas welcome.
 `http://<receiver>:8098/control` from any phone, tablet or PC on the LAN (no app, no login):
 now playing at the top (drag or tap the progress bar to jump within the song; "Up next"
 shows the following song, whose art is preloaded so it appears at once), then **Workshop speakers** (play/pause, previous/next, volume
-buttons and slider, mute), then **This device** (Listen here, with its own volume and mute
+slider, loop (repeat this song), mute), then **This device** (Listen here, with its own volume and mute
 for the stream only, remembered per device). It fits one screen with no scrolling: on wide
 screens the art sits left and the three sections stack on the right; on a phone held upright
 the art shrinks to a thumbnail beside the song. While listening, the phone's lock screen
@@ -81,6 +81,7 @@ now-playing JSON plus `"ok"`. The phone app and the screen follow along.
 curl -X POST http://<receiver>:8098/api/control/play-pause   # also: play, pause
 curl -X POST http://<receiver>:8098/api/control/next          # also: previous
 curl -X POST "http://<receiver>:8098/api/control/seek?position=90"   # seconds into the song
+curl -X POST "http://<receiver>:8098/api/control/loop"        # repeat this song; ?on=1 | 0 | toggle
 curl -X POST "http://<receiver>:8098/api/control/volume?step=5"   # or ?step=-5, ?level=40
 curl -X POST "http://<receiver>:8098/api/control/mute"        # ?on=1 | 0 | toggle (default)
 ```
@@ -88,13 +89,28 @@ curl -X POST "http://<receiver>:8098/api/control/mute"        # ?on=1 | 0 | togg
 Read-only: `GET /api/now-playing`. Unmute restores the level from before muting (YouTube
 Music on iOS can't mute, so the library mutes by setting the level to 0).
 
-## What's in here
+## IR remote (optional)
+
+Any spare TV/DVD remote can drive the receiver through a **USB-UIRT** (USB IR receiver; Linux
+sees it as an FTDI serial port). Each button press arrives as a short code, which is looked up
+and run as a Control API command, so the remote does what the control page does.
+
+- Set `YTCR_REMOTE_DEVICE` to the device inside the container (see `compose.yaml`) and pass the
+  USB-UIRT in (e.g. `/dev/serial/by-id/usb-FTDI_USB-UIRT-if00-port0`).
+- Teach buttons on the control page: **Remote** (top right) -> **Teach** next to an action ->
+  press the button. Actions: play/pause, next, previous, volume up/down, mute, loop. Saved in
+  `remote.json` in the data folder; several remotes can share an action.
+- Holding volume up/down keeps stepping; other buttons act once per press.
+- The USB-UIRT talks at 312500 baud, which `stty` can't set; `uirt-read.py` sets it with the
+  termios2 ioctl (Python 3 is already in the `node:20-bookworm` image).
+
 
 | Path | What |
 |---|---|
 | `ytcr-player/index.mjs` | Receiver setup, data store, the now-playing HTTP server |
 | `ytcr-player/VideoLoader.mjs` | Track → stream URLs, with the `ctt` handling (adapted from [volumio-ytcr](https://github.com/patrickkfkan/volumio-ytcr), MIT) |
-| `ytcr-player/Control.mjs` | Control API (play/pause, next/previous, volume, mute) |
+| `ytcr-player/Control.mjs` | Control API (play/pause, next/previous, seek, volume, mute, loop) |
+| `ytcr-player/Remote.mjs` + `uirt-read.py` | IR remote via a USB-UIRT; buttons taught from the control page |
 | `ytcr-player/MusicRadio.mjs` | End-of-queue suggestions from YouTube Music's radio |
 | `ytcr-player/HouseStream.mjs` | Poor man's multi-room audio: live MP3 stream of what's playing |
 | `ytcr-player/Resume.mjs` | Save the queue and pick up again after a restart |
@@ -155,8 +171,8 @@ Notes:
 
 1. ~~**Control API**~~ **done** (see above). Everything below builds on it.
 2. ~~**Browser control page**~~ **done**, plus poor man's multi-room audio (a live stream to any browser) and resume after restart.
-3. **Physical remote**: e.g. an ESP32 button remote (via an ESP-NOW bridge) or Zigbee
-   buttons, calling the control API.
+3. ~~**Physical remote**~~ **done** as an IR remote (any spare remote + a USB-UIRT, see
+   above). An ESP32 / Zigbee button remote could still call the control API.
 4. **Idle screen content**: useful panels when nothing is playing.
 5. **Later, optional**: an MQTT / Home Assistant link (media player entity, automations),
    kept as an add-on so the music never depends on it.

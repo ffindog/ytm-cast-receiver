@@ -161,6 +161,7 @@ export default class MpvPlayer extends Player {
   #houseTrack = null;
   #upNext = null; // { id, title, artist, thumbnail }
   #upNextLookup = null; // id being looked up
+  #loop = false;
 
   constructor(loader, mpvOptions = {}) {
     super();
@@ -260,7 +261,7 @@ export default class MpvPlayer extends Player {
       void this.#skipOrStop(`mpv could not play the stream (${event.file_error || 'error'})`);
     }
     else {
-      void this.#advance();
+      void this.#trackEnded();
     }
   }
 
@@ -278,6 +279,32 @@ export default class MpvPlayer extends Player {
     catch (error) {
       this.logger.error(`[player] could not report stop: ${error?.message || error}`);
     }
+  }
+
+  // Loop (repeat the current song): set from the control page. Not part of
+  // the phone's queue, so the phone neither shows nor changes it.
+  get loop() {
+    return this.#loop;
+  }
+
+  setLoop(on) {
+    this.#loop = !!on;
+    this.logger.info(`[player] loop ${this.#loop ? 'on' : 'off'}`);
+  }
+
+  // A song played to the end: play it again if looping, else move on.
+  async #trackEnded() {
+    const current = this.queue.current;
+    if (this.#loop && current) {
+      try {
+        await this.play(current, 0);
+        return;
+      }
+      catch (error) {
+        this.logger.error(`[player] loop replay failed: ${error?.message || error}`);
+      }
+    }
+    await this.#advance();
   }
 
   async #advance() {
@@ -444,7 +471,7 @@ export default class MpvPlayer extends Player {
       this.#playingEntry = null;
       // mpv exits 0 at the end of the file, 2 when it could not play it.
       if (code === 0) {
-        void this.#advance();
+        void this.#trackEnded();
       }
       else if (!shown) {
         // Never got a picture up (screen off, display busy): the track itself
@@ -555,6 +582,7 @@ export default class MpvPlayer extends Player {
       position: playing ? await this.doGetPosition() : 0,
       duration: playing ? await this.doGetDuration() : 0,
       next: playing ? this.#currentUpNext() : null,
+      loop: this.#loop,
       volume: this.#volume
     };
   }
