@@ -24,7 +24,10 @@ burst = b''
 while True:
     r, _, _ = select.select([fd], [], [], GAP)
     if r:
-        data = os.read(fd, 256)
+        try:
+            data = os.read(fd, 256)
+        except BlockingIOError:
+            continue  # someone else read the bytes first (another program opened the port)
         if not data:
             sys.exit(1)  # unplugged
         burst += data
