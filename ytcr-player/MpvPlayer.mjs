@@ -3,11 +3,17 @@
 // so the receiver can move on.
 //
 // Audio tracks play in one long-running, audio-only mpv. Videos (YouTube
-// Music's music videos, ordinary YouTube videos) get their own mpv process
-// that draws full screen via DRM (YTCR_DRM_DEVICE) and exits when the video
-// ends. Only one program can drive the screen, so before a video starts the
-// kiosk container is asked (through /api/now-playing's `mode`) to close its
-// browser, and it confirms with POST /api/screen-released.
+// Music's music videos, ordinary YouTube videos) are shown one of three ways
+// (videoMode option, YTCR_VIDEO_MODE):
+// - "window" (default): the sound plays in the audio mpv like any song, and the
+//   now-playing page shows the picture in place of the artwork. The page
+//   fetches it through /api/video/<n> (index.mjs) and follows mpv's position.
+// - "fullscreen": a separate mpv draws full screen via DRM (YTCR_DRM_DEVICE)
+//   and exits when the video ends. Only one program can drive the screen, so
+//   before a video starts the kiosk container is asked (through
+//   /api/now-playing's `mode`) to close its browser, and it confirms with
+//   POST /api/screen-released.
+// - "off": sound only.
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { once } from 'node:events';
@@ -128,6 +134,11 @@ class Mpv {
     });
   }
 
+  // Plain-text input command (no reply). Needed for command prefixes.
+  text(line) {
+    if (!this.exited && this.#socket) this.#socket.write(`${line}\n`);
+  }
+
   async get(property) {
     const reply = await this.command('get_property', property);
     return reply.error === 'success' ? reply.data : null;
@@ -162,6 +173,8 @@ export default class MpvPlayer extends Player {
   #upNext = null; // { id, title, artist, thumbnail }
   #upNextLookup = null; // id being looked up
   #loop = false;
+  #pageVideo = null; // window mode: { seq, url, label } for /api/video/<seq>
+  #pageVideoSeq = 0;
 
   constructor(loader, mpvOptions = {}) {
     super();
@@ -362,6 +375,7 @@ export default class MpvPlayer extends Player {
     this.ytcrResumeAt = null;
     if (resumeAt && resumeAt.id === video.id && !position) position = resumeAt.position;
     this.#startPosition = position || 0;
+    this.#pageVideo = null;
     await this.#audio.command('stop');
     this.#playingEntry = null;
     this.#houseTrack = null;
@@ -391,15 +405,23 @@ export default class MpvPlayer extends Player {
       album: info.album || '', thumbnail: info.thumbnail || null,
       video: info.videoLabel || null
     };
+    const videoMode = this.mpvOptions.videoMode || 'window';
     // TV off or unplugged: there is nowhere to show the video, so play the
     // track's audio instead (mpv's DRM output fails without a connected screen).
-    const asVideo = !!info.videoUrl && this.#screenConnected();
-    if (info.videoUrl && !asVideo) this.logger.info('[player] screen not connected; playing the audio only');
+    const asVideo = !!info.videoUrl && videoMode === 'fullscreen' && this.#screenConnected();
+    if (info.videoUrl && videoMode === 'fullscreen' && !asVideo) {
+      this.logger.info('[player] screen not connected; playing the audio only');
+    }
+    if (info.videoUrl && videoMode === 'window') {
+      this.#pageVideo = { seq: ++this.#pageVideoSeq, url: info.videoUrl, label: info.videoLabel };
+    }
     const ok = asVideo
       ? await this.#playVideo(video, info, position)
       : await this.#playAudio(video, info, position);
     if (ok) {
-      this.logger.info(`[player] playing ${this.#mode === 'video' ? `video (${info.videoLabel})` : 'audio'} `
+      const kind = this.#mode === 'video' ? `video (${info.videoLabel})`
+        : this.#pageVideo ? `audio + video on the page (${info.videoLabel})` : 'audio';
+      this.logger.info(`[player] playing ${kind} `
         + `"${info.title}"${info.artist ? ` - ${info.artist}` : ''}`);
       // The house stream decodes the same audio track itself (HouseStream.mjs).
       this.#houseTrack = { url: info.streamUrl, title: info.title };
@@ -526,6 +548,7 @@ export default class MpvPlayer extends Player {
   async doStop() {
     this.#abort?.abort();
     this.#playingEntry = null;
+    this.#pageVideo = null;
     this.#nowPlaying = null;
     this.#houseTrack = null;
     this.mpvOptions.houseStream?.silence();
@@ -547,13 +570,13 @@ export default class MpvPlayer extends Player {
     for (const mpv of [ this.#audio, this.#video ]) {
       if (!mpv || mpv.exited) continue;
       await mpv.set('mute', !!volume.muted);
+      await mpv.set('volume', volume.level);
       if (mpv === this.#video) {
         // The kiosk page (and its volume pop-up) is off screen during a video:
-        // let mpv show its own volume bar instead.
-        await mpv.command('osd-msg-bar', 'set', 'volume', volume.level);
-      }
-      else {
-        await mpv.set('volume', volume.level);
+        // let mpv show its own volume bar instead. Command prefixes such as
+        // osd-msg-bar are refused in JSON form ("invalid parameter"), so this
+        // goes as a plain-text command line.
+        mpv.text(`osd-msg-bar set volume ${volume.level}`);
       }
     }
     // Returning true would make the library confirm every press straight
@@ -571,14 +594,31 @@ export default class MpvPlayer extends Player {
     return false;
   }
 
+  // Window mode: the video stream behind /api/video/<seq>, while it is current.
+  pageVideoUrl(seq) {
+    return this.#pageVideo && String(this.#pageVideo.seq) === String(seq) ? this.#pageVideo.url : null;
+  }
+
   // For the now-playing screen and the kiosk. `state` is the receiver's
   // player status; `mode` tells the kiosk whether it may hold the screen.
+  // `video` (window mode) is the picture for the page to show, kept in step
+  // with `positionExact` (seconds, not rounded).
   async nowPlaying() {
     const playing = this.#playingEntry !== null ? this.#nowPlaying : null;
+    const exact = playing ? await this.#active().get('time-pos') : null;
+    const video = playing && this.#pageVideo
+      ? {
+        src: `/api/video/${this.#pageVideo.seq}`, label: this.#pageVideo.label,
+        // Lip-sync trim: + shows the picture later, - earlier.
+        offsetMs: this.mpvOptions.videoOffsetMs || 0,
+        syncLog: !!this.mpvOptions.videoSyncLog
+      } : null;
     return {
       mode: this.#mode,
       state: playing ? (this.status === Constants.PLAYER_STATUSES.PAUSED ? 'paused' : 'playing') : 'idle',
       track: playing,
+      video,
+      positionExact: typeof exact === 'number' ? exact : (playing ? this.#startPosition : 0),
       position: playing ? await this.doGetPosition() : 0,
       duration: playing ? await this.doGetDuration() : 0,
       next: playing ? this.#currentUpNext() : null,

@@ -6,6 +6,7 @@ import { mkdirSync } from 'node:fs';
 import http from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { Readable } from 'node:stream';
 import { control, ControlError } from './Control.mjs';
 import HouseStream from './HouseStream.mjs';
 import Remote from './Remote.mjs';
@@ -69,8 +70,19 @@ if (env.YTCR_FORCE_AUTOPLAY === '1') useMusicRadio(loaderLogger);
 // Poor man's multi-room audio: MP3 stream of what's playing (HouseStream.mjs).
 const houseStream = new HouseStream(loaderLogger);
 
-const player = new MpvPlayer(new VideoLoader(loaderLogger), {
+// Videos: "window" (picture on the now-playing page, default), "fullscreen"
+// (mpv takes the screen) or "off" (MpvPlayer.mjs).
+const VIDEO_MODE = [ 'window', 'fullscreen', 'off' ].includes(env.YTCR_VIDEO_MODE) ? env.YTCR_VIDEO_MODE : 'window';
+// The page's video is decoded by the browser on the CPU: 720p is plenty for
+// the box it fills. Full screen gets up to 1080p.
+const MAX_VIDEO_HEIGHT = Number(env.YTCR_VIDEO_MAX_HEIGHT) || (VIDEO_MODE === 'fullscreen' ? 1080 : 720);
+
+const player = new MpvPlayer(new VideoLoader(loaderLogger, { maxVideoHeight: MAX_VIDEO_HEIGHT }), {
   houseStream,
+  videoMode: VIDEO_MODE,
+  // Window mode: lip-sync trim, and a sync report from the page every 10 s.
+  videoOffsetMs: Number(env.YTCR_VIDEO_OFFSET_MS) || 0,
+  videoSyncLog: env.YTCR_VIDEO_SYNC_LOG === '1',
   audioDevice: env.YTCR_AUDIO_DEVICE,
   volumeFile: `${DATA_DIR}/volume.json`
 });
@@ -147,6 +159,7 @@ if (DIAL_THEME) {
 const PAGE = env.YTCR_PAGE || new URL('./nowplaying.html', import.meta.url);
 // Remote-control page for any phone or browser on the LAN (Control.mjs API).
 const CONTROL_PAGE = new URL('./control.html', import.meta.url);
+let lastVideoStatus = '';
 http.createServer((req, res) => {
   void (async () => {
     const url = new URL(req.url, 'http://receiver');
@@ -192,6 +205,49 @@ http.createServer((req, res) => {
         return json(400, { error: error.message });
       }
       json(200, { enabled: true, ...remote.state() });
+    }
+    else if (url.pathname.startsWith('/api/video/')) {
+      // Window mode: relay the current video stream to the page, ranges and
+      // all, so YouTube's signed links never leave the receiver.
+      const src = player.pageVideoUrl(url.pathname.slice('/api/video/'.length));
+      if (!src) {
+        res.writeHead(404).end();
+        return;
+      }
+      const abort = new AbortController();
+      res.on('close', () => abort.abort());
+      const headers = {};
+      if (req.headers.range) headers.range = req.headers.range;
+      let upstream;
+      try {
+        upstream = await fetch(src, { headers, signal: abort.signal });
+      }
+      catch (error) {
+        if (abort.signal.aborted) return;
+        throw error;
+      }
+      const out = { 'cache-control': 'no-store', 'accept-ranges': 'bytes' };
+      for (const name of [ 'content-type', 'content-length', 'content-range' ]) {
+        const value = upstream.headers.get(name);
+        if (value) out[name] = value;
+      }
+      res.writeHead(upstream.status, out);
+      if (!upstream.body || req.method === 'HEAD') {
+        res.end();
+        return;
+      }
+      Readable.fromWeb(upstream.body).on('error', () => res.destroy()).pipe(res);
+    }
+    else if (url.pathname === '/api/video-status' && req.method === 'POST') {
+      // The page says whether the video is showing (logged on change only).
+      const status = url.searchParams.get('state') || '?';
+      const detail = url.searchParams.get('detail') || '';
+      const line = `${status}${detail ? ` (${detail})` : ''}`;
+      if (line !== lastVideoStatus) {
+        lastVideoStatus = line;
+        receiver.logger.info(`[screen] video ${line}`);
+      }
+      res.writeHead(204).end();
     }
     else if (url.pathname === '/stream.mp3' || url.pathname === '/stream') {
       houseStream.handle(req, res);

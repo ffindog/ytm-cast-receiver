@@ -1,7 +1,8 @@
 #!/bin/sh
 # Screen supervisor. Runs Cog (WPE WebKit, DRM platform) on the DRM card(s)
 # passed into the container, showing the ytcr now-playing page,
-# and hands the screen to ytcr while a video plays: only one program can
+# and (YTCR_VIDEO_MODE=fullscreen only) hands the screen to ytcr while a
+# video plays: only one program can
 # drive the screen. ytcr says which via /api/now-playing "mode"; this script
 # closes Cog and confirms with POST /api/screen-released, then reopens Cog
 # once the mode has been back to "audio" for a moment.

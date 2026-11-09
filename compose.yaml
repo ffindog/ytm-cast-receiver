@@ -30,6 +30,11 @@ services:
       # YTCR_AUDIO_DEVICE: "alsa/default"
       # DRM card mpv draws videos on (default /dev/dri/card1).
       # YTCR_DRM_DEVICE: "/dev/dri/card1"
+      # Videos: "window" (in the screen page's artwork box, default),
+      # "fullscreen" (mpv takes the screen) or "off". Window-mode extras:
+      # YTCR_VIDEO_OFFSET_MS (lip-sync trim, + = picture later),
+      # YTCR_VIDEO_MAX_HEIGHT (default 720), YTCR_VIDEO_SYNC_LOG: "1" (drift report).
+      # YTCR_VIDEO_MODE: "window"
       #
       # Pairing description overrides - leave unset (library defaults). They
       # were tried while chasing YouTube Music's Song/Video switch flipping

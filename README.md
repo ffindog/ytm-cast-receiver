@@ -22,12 +22,20 @@ Built for a workshop; shared as-is. Issues and ideas welcome.
   (`context.user.credentialTransferTokens`), and YouTube serves the stream as the phone's
   account would see it. "Explicit" and "age-restricted" are different: explicit tracks play
   anonymously; age-restricted ones need this token.
-- **mpv** plays the audio (ALSA). Music videos and videos cast from the YouTube app play full
-  screen through mpv's DRM output, if a GPU and screen are attached. Songs vs videos are told
-  apart by YouTube's `musicVideoType`.
-- **Optional screen** (`kiosk/`): a now-playing page (art, title, progress, volume pop-up,
-  clock when idle) shown by **Cog** (WPE WebKit) straight on DRM: no desktop, compositor
-  or login session needed. It steps aside while a video plays.
+- **mpv** plays the audio (ALSA). Songs vs videos are told apart by YouTube's
+  `musicVideoType`. Music videos and videos cast from the YouTube app are shown per
+  `YTCR_VIDEO_MODE`:
+  - `window` (default): the now-playing page plays the picture (muted, up to 720p) in place
+    of the artwork, relayed through the receiver (`/api/video/<n>`), and keeps it in step
+    with mpv's position (jumps only when more than 0.25 s out; within ~50 ms in practice).
+    `YTCR_VIDEO_OFFSET_MS` trims lip sync (+ = picture later).
+  - `fullscreen`: mpv draws the video full screen through DRM, if a GPU and screen are
+    attached; the kiosk steps aside while it plays.
+  - `off`: sound only.
+- **Optional screen** (`kiosk/`): a now-playing page (art or video, title, progress, volume
+  pop-up, clock when idle) shown by **Cog** (WPE WebKit) straight on DRM: no desktop,
+  compositor or login session needed. The image includes GStreamer's decoders for the
+  windowed video (CPU decode; 720p uses about half a core).
 
 ## Behaviour worth knowing
 
@@ -115,7 +123,7 @@ and run as a Control API command, so the remote does what the control page does.
 | `ytcr-player/HouseStream.mjs` | Poor man's multi-room audio: live MP3 stream of what's playing |
 | `ytcr-player/Resume.mjs` | Save the queue and pick up again after a restart |
 | `ytcr-player/control.html` | The control page (mounted, so edits need no receiver restart - but overwrite the file in place; replacing it leaves the container on the old copy until restarted) |
-| `ytcr-player/MpvPlayer.mjs` | Player: long-running audio mpv + per-video DRM mpv, skip/volume logic |
+| `ytcr-player/MpvPlayer.mjs` | Player: long-running audio mpv; videos on the page or in a per-video DRM mpv; skip/volume logic |
 | `ytcr-player/patch-ytcr.cjs` | Build-time patches to yt-cast-receiver; each must match exactly once or the build fails |
 | `ytcr-player/nowplaying.html` | The screen page (mounted, so edits need only a kiosk restart) |
 | `kiosk/` | Optional screen container (Cog on DRM) |

@@ -34,9 +34,12 @@ export default class VideoLoader {
   #wrapperPromise = null;
   #lock = Promise.resolve();
 
-  constructor(logger, { region = 'AU', language = 'en' } = {}) {
+  constructor(logger, { region = 'AU', language = 'en', maxVideoHeight = 1080 } = {}) {
     this.#logger = logger;
     this.locale = { region, language };
+    // Tallest video stream to pick: 1080 for full screen, less when the video
+    // only fills a box on the now-playing page (decoded by the browser's CPU).
+    this.maxVideoHeight = maxVideoHeight;
   }
 
   #wrapper() {
@@ -234,7 +237,7 @@ export default class VideoLoader {
     const innertube = await this.#innertube();
     const codecRank = (mime) => (/avc1/.test(mime) ? 0 : /vp0?9/.test(mime) ? 1 : 9);
     const candidates = (info.streaming_data?.adaptive_formats || [])
-      .filter((f) => f.has_video && !f.has_audio && (f.height || 0) <= 1080 && (f.fps || 0) <= 60
+      .filter((f) => f.has_video && !f.has_audio && (f.height || 0) <= this.maxVideoHeight && (f.fps || 0) <= 60
         && codecRank(f.mime_type || '') < 9)
       .sort((a, b) => (b.height - a.height) || (codecRank(a.mime_type) - codecRank(b.mime_type))
         || ((b.bitrate || 0) - (a.bitrate || 0)));

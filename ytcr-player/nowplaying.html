@@ -26,8 +26,19 @@
 
   /* Playing */
   #playing { align-items: center; gap: 5vw; padding: 0 7vw; }
-  #art { width: 62vh; height: 62vh; flex: none; border-radius: 2vh; object-fit: cover;
-    background: var(--panel); }
+  #media { position: relative; width: 62vh; height: 62vh; flex: none; border-radius: 2vh;
+    overflow: hidden; background: var(--panel); }
+  #art { display: block; width: 100%; height: 100%; object-fit: cover; }
+  /* Music videos play here in place of the artwork (muted: the sound is the
+     receiver's, this follows its position). Shown once the first frame plays. */
+  #vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+    background: #000; visibility: hidden; }
+  /* Cog draws a video element even at opacity 0 (it covered the artwork,
+     2026-11-09): hide it outright until a video is showing. */
+  #vid:not([src]) { display: none; }
+  #playing.video #media { width: 88vh; height: 49.5vh; }
+  #playing.video #vid { visibility: visible; }
+  #playing.video #title { font-size: 6vh; }
   #info { flex: 1; min-width: 0; }
   #status-row { display: flex; align-items: center; gap: 2.5vh; margin-bottom: 2.5vh; }
   #status { font-size: 2.6vh; letter-spacing: .4vh; text-transform: uppercase; color: var(--accent); }
@@ -76,7 +87,7 @@
 <div id="clock"></div>
 
 <section id="playing" class="screen">
-  <img id="art" alt="">
+  <div id="media"><img id="art" alt=""><video id="vid" muted playsinline preload="auto"></video></div>
   <div id="info">
     <div id="status-row"><span id="status">Now playing</span><span id="repeat"><svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4zm-4-2V9h-1l-2 1v1h1.5v4H13z"/></svg>Repeat</span></div>
     <div id="title"></div>
@@ -145,6 +156,7 @@
     document.body.classList.toggle('idle', !active);
     $('playing').classList.toggle('on', active);
     $('idle').classList.toggle('on', !active);
+    syncVideo(live ? s : null);
     if (!active) return;
     if (holding) {
       $('playing').classList.add('paused');
@@ -184,6 +196,82 @@
     $('volume').classList.add('on');
     clearTimeout(volTimer);
     volTimer = setTimeout(() => $('volume').classList.remove('on'), 3000);
+  }
+
+  // Video in place of the artwork. The receiver relays the stream
+  // (/api/video/<n>); the page keeps it within a fraction of a second of the
+  // sound and tells the receiver whether it is showing (logged there).
+  const vid = $('vid');
+  vid.muted = true;
+  let vidSrc = null;
+  let vidShown = false;
+  // Corrections are jumps only, at most one per SEEK_GAP_MS: changing
+  // playbackRate makes WebKit's GStreamer pipeline re-seek (visible stutter).
+  const DRIFT_LIMIT = 0.25;
+  const SEEK_GAP_MS = 3000;
+  const SEEK_LEAD = 0.15; // a jump takes time; land a little ahead
+  let lastSeekAt = 0;
+  let sync = { n: 0, sum: 0, max: 0, seeks: 0, stalls: 0, at: Date.now() };
+  function report(state, detail) {
+    const q = `state=${encodeURIComponent(state)}${detail ? `&detail=${encodeURIComponent(detail)}` : ''}`;
+    fetch(`/api/video-status?${q}`, { method: 'POST' }).catch(() => {});
+  }
+  vid.addEventListener('playing', () => {
+    if (vidShown || !vidSrc) return;
+    vidShown = true;
+    $('playing').classList.add('video');
+    report('showing', `${vid.videoWidth}x${vid.videoHeight}`);
+  });
+  vid.addEventListener('waiting', () => { if (vidShown) sync.stalls += 1; });
+  vid.addEventListener('error', () => {
+    if (!vidSrc) return;
+    $('playing').classList.remove('video');
+    report('failed', `code ${vid.error?.code || '?'}${vid.error?.message ? `: ${vid.error.message}` : ''}`);
+  });
+  function syncVideo(s) {
+    const want = s?.video?.src || null;
+    if (want !== vidSrc) {
+      vidSrc = want;
+      vidShown = false;
+      $('playing').classList.remove('video');
+      if (want) {
+        vid.src = want;
+      }
+      else {
+        vid.pause();
+        vid.removeAttribute('src');
+      }
+      vid.load();
+    }
+    if (!want || vid.error) return;
+    const paused = s.state === 'paused';
+    const target = (s.positionExact ?? s.position) + (paused ? 0 : (Date.now() - lastAt) / 1000)
+      - (s.video.offsetMs || 0) / 1000;
+    if (paused) {
+      if (!vid.paused) vid.pause();
+    }
+    else if (vid.paused && vid.readyState >= 2) {
+      vid.play().catch(() => {});
+    }
+    if (vid.readyState < 1 || vid.seeking) return;
+    const drift = vid.currentTime - target;
+    if (vidShown && !paused && !vid.paused) {
+      sync.n += 1;
+      sync.sum += drift;
+      sync.max = Math.max(sync.max, Math.abs(drift));
+    }
+    if (Math.abs(drift) > DRIFT_LIMIT && Date.now() - lastSeekAt > SEEK_GAP_MS) {
+      lastSeekAt = Date.now();
+      if (vidShown) sync.seeks += 1;
+      vid.currentTime = target + (paused ? 0 : SEEK_LEAD);
+    }
+    if (s.video.syncLog && Date.now() - sync.at >= 10000) {
+      if (sync.n) {
+        report('sync', `drift avg ${Math.round((sync.sum / sync.n) * 1000)} ms, max ${Math.round(sync.max * 1000)} ms, `
+          + `jumps ${sync.seeks}, stalls ${sync.stalls}, rate ${vid.playbackRate}`);
+      }
+      sync = { n: 0, sum: 0, max: 0, seeks: 0, stalls: 0, at: Date.now() };
+    }
   }
 
   const preload = new Image();
