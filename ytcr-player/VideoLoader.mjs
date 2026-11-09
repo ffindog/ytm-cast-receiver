@@ -99,6 +99,31 @@ export default class VideoLoader {
     });
   }
 
+  // Diagnostic (YTCR_PROBE_COUNTERPART=1): does YouTube Music's /next, asked
+  // with the phone's token on the session, give the Song <-> Video
+  // counterpart? Anonymous requests never do (tested 2026-11-09). Logs the
+  // answer only, never the token.
+  async #probeCounterpart(innertube, id, hasCtt) {
+    try {
+      const res = await innertube.actions.execute('/next', {
+        videoId: id, playlistId: `RDAMVM${id}`, isAudioOnly: true, enablePersistentPlaylistPanel: true,
+        tunerSettingValue: 'AUTOMIX_SETTING_NORMAL',
+        watchEndpointMusicSupportedConfigs: { watchEndpointMusicConfig: { hasPersistentPlaylistPanel: true } },
+        client: 'YTMUSIC', parse: false
+      });
+      const text = JSON.stringify(res.data);
+      const wrappers = (text.match(/playlistPanelVideoWrapperRenderer/g) || []).length;
+      const counterparts = (text.match(/counterpartRenderer/g) || []).length;
+      const first = text.match(/"counterpartRenderer":\{"playlistPanelVideoRenderer":\{.*?"videoId":"([A-Za-z0-9_-]{11})"/)?.[1] || 'none';
+      const loggedIn = /"logged_in","value":"1"/.test(text) ? 'yes' : 'no';
+      this.#logger.info(`[probe] ${id} ctt=${hasCtt ? 'yes' : 'no'} loggedIn=${loggedIn} `
+        + `wrappers=${wrappers} counterparts=${counterparts} first=${first}`);
+    }
+    catch (error) {
+      this.#logger.warn(`[probe] ${id} failed: ${error?.message || error}`);
+    }
+  }
+
   async #getInfo(video, abortSignal) {
     const innertube = await this.#innertube();
     const checkAbort = () => {
@@ -152,6 +177,7 @@ export default class VideoLoader {
     const hasCtt = !!video.context?.ctt;
 
     const cpn = InnertubeLib.Utils.generateRandomString(16);
+    if (process.env.YTCR_PROBE_COUNTERPART === '1') await this.#probeCounterpart(innertube, video.id, hasCtt);
     try {
       const next = await innertube.actions.execute('/next', { ...payload, client: 'TV' });
       checkAbort();
