@@ -54,6 +54,24 @@ patch('Player.js',
         }
         __classPrivateFieldGet(this, _Player_logger, "f").info(\`[yt-cast-receiver] Player.play(): \${video.id} @ \${position || 0}s\${ytcrSwap ? ' (swap, no stop)' : ''}\`);`);
 
+// A phone that dropped off while the music carried on sends its old queue
+// when it reconnects, which jumped the receiver back to the song the phone
+// last saw. MpvPlayer.ytcrStaleReconnect() decides; if so, keep playing and
+// send the phone what is actually on.
+patch('app/YouTubeApp.js',
+  `        case 'setPlaylist':
+        case 'updatePlaylist': {
+            if (!isSessionActive)
+                return;`,
+  `        case 'setPlaylist':
+        case 'updatePlaylist': {
+            if (!isSessionActive)
+                return;
+            if (message.name === 'setPlaylist' && __classPrivateFieldGet(this, _YouTubeApp_player, "f").ytcrStaleReconnect?.(payload)) {
+                sendMessages.push(new Message_js_1.default.NowPlaying(AID, await __classPrivateFieldGet(this, _YouTubeApp_player, "f").getState()), new Message_js_1.default.OnHasPreviousNextChanged(AID, __classPrivateFieldGet(this, _YouTubeApp_player, "f").getNavInfo()), new Message_js_1.default.OnAutoplayModeChanged(AID, __classPrivateFieldGet(this, _YouTubeApp_player, "f").getNavInfo()));
+                break;
+            }`);
+
 // The library blanked previous/next while looking them up (1-3 s), so the
 // phone was told "no previous, no next" mid-switch. Keep the old values until
 // the lookup answers; clear them only when there is nothing to look up.

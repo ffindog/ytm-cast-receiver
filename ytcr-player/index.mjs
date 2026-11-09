@@ -105,6 +105,7 @@ const receiver = new YouTubeCastReceiver(player, {
 
 receiver.on('senderConnect', (sender) => {
   receiver.logger.info(`[ytcr] sender connected: ${sender.device?.name || sender.name || 'unknown'}`);
+  player.senderConnected();
 });
 receiver.on('senderDisconnect', (sender, implicit) => {
   receiver.logger.info(`[ytcr] sender disconnected${implicit ? ' (implicit)' : ''}: ${sender.device?.name || sender.name || 'unknown'}`);

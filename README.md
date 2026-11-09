@@ -53,6 +53,11 @@ Built for a workshop; shared as-is. Issues and ideas welcome.
   position and play/pause are saved every 5 s (`data/resume.json`). If it was playing less
   than 5 minutes ago it carries straight on; otherwise the queue comes back paused and play
   continues from the saved spot. An explicitly emptied queue stays empty (`Resume.mjs`).
+- **A reconnecting phone follows the receiver.** A phone that dropped off while the music
+  carried on sends its old queue when it reconnects (the song it last saw). For 15 s after a
+  connect, a first `setPlaylist` asking for a song already played here is ignored and the
+  phone is sent what is playing instead (`ytcrStaleReconnect`, patched into the library).
+  Picking that song again on purpose still works.
 - **YouTube Music's Song/Video switch flips back to "Song"** after you choose Video. The video
   still plays; only the phone's switch is wrong. This is a **YouTube Music bug**: an LG TV with
   the official YouTube app does exactly the same. Swaps themselves are clean here: no

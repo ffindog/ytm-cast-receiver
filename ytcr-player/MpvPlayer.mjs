@@ -49,6 +49,13 @@ const ADVANCE_WAIT_MS = 15000;
 // How often the phone is sent the playback position while playing.
 const POSITION_UPDATE_MS = 5000;
 
+// After the phone reconnects (it dropped off while the music carried on), its
+// first queue can be its old view: the song it last saw. For this long after
+// a reconnect, a queue asking for a song already played here is ignored and
+// the phone is told what is playing instead (patch-ytcr.cjs).
+const STALE_RECONNECT_MS = 15000;
+const HISTORY_SIZE = 50;
+
 // How often to check what is up next (title/artist/art for the pages, so
 // they can preload the artwork). Only looks it up when the next song changes.
 const UP_NEXT_CHECK_MS = 10000;
@@ -173,6 +180,8 @@ export default class MpvPlayer extends Player {
   #upNext = null; // { id, title, artist, thumbnail }
   #upNextLookup = null; // id being looked up
   #loop = false;
+  #history = []; // ids played, oldest first (stale-reconnect check)
+  #reconnectAt = 0;
   #pageVideo = null; // window mode: { seq, url, label } for /api/video/<seq>
   #pageVideoSeq = 0;
 
@@ -376,6 +385,7 @@ export default class MpvPlayer extends Player {
     if (resumeAt && resumeAt.id === video.id && !position) position = resumeAt.position;
     this.#startPosition = position || 0;
     this.#pageVideo = null;
+    this.#history = [ ...this.#history.filter((id) => id !== video.id), video.id ].slice(-HISTORY_SIZE);
     await this.#audio.command('stop');
     this.#playingEntry = null;
     this.#houseTrack = null;
@@ -592,6 +602,30 @@ export default class MpvPlayer extends Player {
       }
     }, VOLUME_CONFIRM_DELAY_MS);
     return false;
+  }
+
+  // A phone (re)connected: index.mjs on the receiver's senderConnect.
+  senderConnected() {
+    this.#reconnectAt = Date.now();
+  }
+
+  // Called by the patched library on setPlaylist. True = ignore it: the phone
+  // just reconnected and is asking for a song this receiver already played
+  // while it carried on. Only the first queue after a connect is checked, so
+  // choosing that song again on purpose still works.
+  ytcrStaleReconnect(payload) {
+    const at = this.#reconnectAt;
+    this.#reconnectAt = 0;
+    if (!at || Date.now() - at > STALE_RECONNECT_MS) return false;
+    if (this.status !== Constants.PLAYER_STATUSES.PLAYING && this.status !== Constants.PLAYER_STATUSES.PAUSED) return false;
+    const ids = typeof payload?.videoIds === 'string' ? payload.videoIds.split(',') : [];
+    const requested = payload?.videoId || ids[Number(payload?.currentIndex)] || null;
+    const current = this.queue.current?.id;
+    if (!requested || !current || requested === current) return false;
+    if (!this.#history.slice(0, -1).includes(requested)) return false;
+    this.logger.info(`[player] phone reconnected asking for ${requested} (played earlier); `
+      + `staying on ${current} and telling the phone`);
+    return true;
   }
 
   // Window mode: the video stream behind /api/video/<seq>, while it is current.
