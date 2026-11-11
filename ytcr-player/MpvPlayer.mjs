@@ -31,6 +31,10 @@ const { Player, Constants } = createRequire(import.meta.url)('yt-cast-receiver')
 // only once mpv actually starts playing.
 const MAX_SKIPS = 3;
 
+// Loader errors worth one more try before skipping (network blips).
+const TRANSIENT_ERROR = /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|timed? ?out/i;
+const RETRY_DELAY_MS = 1500;
+
 // Volume changes from the phone are confirmed back once, this long after the
 // last button press. Confirming every press made the phone jump back to stale
 // levels; never confirming left the phone with no volume indicator.
@@ -92,7 +96,9 @@ class Mpv {
       this.#pending.clear();
       this.onExit(code, signal);
     });
-    for (let i = 0; i < 100 && !this.#socket && !this.exited; i++) {
+    // Up to 30 s: right after the host boots (every guest starting at once)
+    // mpv has taken over 10 s to open its socket (2026-11-11).
+    for (let i = 0; i < 300 && !this.#socket && !this.exited; i++) {
       try {
         const socket = net.createConnection(this.#socketPath);
         await once(socket, 'connect');
@@ -391,15 +397,24 @@ export default class MpvPlayer extends Player {
     this.#houseTrack = null;
     this.mpvOptions.houseStream?.silence();
 
+    // A network blip ("fetch failed") used to skip the track straight away -
+    // even a Song -> Video swap of the song already playing (2026-11-11). Try
+    // once more first.
     let info;
-    try {
-      info = await this.#loader.getInfo(video, abort.signal);
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        info = await this.#loader.getInfo(video, abort.signal);
+      }
+      catch (error) {
+        if (error?.name === 'AbortError') return false;
+        throw error;
+      }
+      if (abort.signal.aborted || this.#loadingId !== video.id) return false;
+      if (info.streamUrl || attempt >= 2 || !TRANSIENT_ERROR.test(info.errMsg || '')) break;
+      this.logger.warn(`[player] ${video.id}: ${info.errMsg}; trying again`);
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+      if (abort.signal.aborted || this.#loadingId !== video.id) return false;
     }
-    catch (error) {
-      if (error?.name === 'AbortError') return false;
-      throw error;
-    }
-    if (abort.signal.aborted || this.#loadingId !== video.id) return false;
 
     if (!info.streamUrl) {
       await this.#stopVideo();

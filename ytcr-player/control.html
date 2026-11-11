@@ -26,7 +26,9 @@
      controls, this device (local) controls. Portrait: now playing is a
      compact row (small art + details). Wide: big art left, the three
      sections stacked on the right. */
-  main { height: 100%; max-width: 1100px; margin: 0 auto; display: grid; gap: 28px;
+  /* Width cap follows the screen height so big screens are used: room for
+     square art beside the controls, or a 16:9 video while one shows. */
+  main { height: 100%; max-width: max(1100px, calc(100vh + 440px)); margin: 0 auto; display: grid; gap: 28px;
     grid-template-rows: auto minmax(0, 1fr) auto auto auto;
     grid-template-areas: "head" "art" "now" "remote" "local"; }
   header { grid-area: head; display: flex; justify-content: space-between; align-items: center;
@@ -48,8 +50,9 @@
     background: var(--ok); margin-right: 6px; vertical-align: 1px; }
   #conn.down::before { background: var(--accent); }
   header .right { display: flex; align-items: center; gap: 14px; }
-  #remote-open { min-height: 0; padding: 4px 10px; font-size: 13px; border-radius: 8px; color: var(--muted); }
-  #remote-open[hidden] { display: none; }
+  header .right button { min-height: 0; padding: 4px 10px; font-size: 13px; border-radius: 8px; color: var(--muted); }
+  header .right button[hidden] { display: none; }
+  #video-btn.on { border-color: var(--ok); color: var(--ok); }
 
   /* Remote button teaching panel (over the page; scrolls if it must). */
   #remote { position: fixed; inset: 0; background: var(--bg); z-index: 10; overflow-y: auto;
@@ -73,6 +76,18 @@
   #art { height: 100%; max-width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 14px;
     background: var(--button); border: 1px solid var(--line); }
   #art.empty { object-fit: contain; }
+  /* Music video in place of the artwork. It fills the art area (letterboxed),
+     so the controls column never changes size. Kept in the layout at opacity
+     0 while loading: browsers may pause a muted video that is display:none. */
+  .art { position: relative; }
+  #vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+    opacity: 0; pointer-events: none; cursor: pointer; }
+  #vid:not([src]) { display: none; }
+  .art.video #art { visibility: hidden; }
+  .art.video #vid { opacity: 1; pointer-events: auto; }
+  body.vidshow main { max-width: max(1100px, calc((100vh - 60px) * 16 / 9 + 470px)); }
+  .art:fullscreen { background: #000; align-items: center; }
+  .art:fullscreen #art { display: none; }
   #status { font-size: 15px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent); }
   #title { font-size: 30px; font-weight: 700; line-height: 1.2; overflow: hidden;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -138,6 +153,12 @@
     #thumb { display: block; grid-area: thumb; }
     #meta { grid-area: meta; min-width: 0; }
     #progress { grid-area: prog; }
+    /* A video showing on this phone: it gets whatever height is left above
+       the details and controls (letterboxed), so nothing is covered. */
+    body.vidshow main { grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+      grid-template-areas: "head" "art" "now" "remote" "local"; }
+    body.vidshow .art { display: block; }
+    body.vidshow .art #art { display: none; }
   }
   /* Short screens (a phone on its side): tighten; "This device" on one row. */
   @media (max-height: 520px) {
@@ -160,9 +181,9 @@
 </head>
 <body>
 <main>
-  <header><span id="name">Workshop</span><span class="right"><button id="remote-open" hidden>Remote</button><span id="conn">Connected</span></span></header>
+  <header><span id="name">Workshop</span><span class="right"><button id="video-btn" hidden aria-pressed="false" title="Show music videos on this screen">Video</button><button id="remote-open" hidden>Remote</button><span id="conn">Connected</span></span></header>
 
-  <section class="art"><img id="art" class="empty" alt=""></section>
+  <section class="art" id="art-box"><img id="art" class="empty" alt=""><video id="vid" muted playsinline preload="auto"></video></section>
 
   <div class="side">
     <section class="now">
@@ -323,7 +344,83 @@
       $('mute').classList.toggle('on', !!s.volume.muted);
       $('mute').textContent = s.volume.muted ? 'Unmute' : 'Mute';
     }
+    // The Video switch only shows while the song has a video to show.
+    $('video-btn').hidden = !(active && s.video);
+    syncVideo(active && videoOn ? s : null);
   }
+
+  // ---------- Music video in place of the artwork ----------
+  // The receiver relays the stream (/api/video/<n>); the page keeps it within
+  // a fraction of a second of the speakers. Same method as the TV page:
+  // corrections are jumps only, at most one per SEEK_GAP_MS (changing
+  // playbackRate makes some browsers re-seek, a visible stutter).
+  // Each screen chooses for itself (remembered here): wide screens default
+  // to on, phones to off (a 720p stream to every phone is not worth it).
+  const vid = $('vid');
+  vid.muted = true;
+  const DRIFT_LIMIT = 0.25;
+  const SEEK_GAP_MS = 3000;
+  const SEEK_LEAD = 0.15; // a jump takes time; land a little ahead
+  let vidSrc = null;
+  let lastSeekAt = 0;
+  let videoOn = store.get('ytcr.video', null);
+  if (videoOn === null) videoOn = matchMedia('(min-aspect-ratio: 1/1), (min-width: 760px)').matches;
+  function showVideoSwitch() {
+    $('video-btn').classList.toggle('on', videoOn);
+    $('video-btn').setAttribute('aria-pressed', String(videoOn));
+    // Green = this screen shows the video. (It does not change what plays.)
+    $('video-btn').textContent = 'Show video';
+  }
+  $('video-btn').onclick = () => {
+    videoOn = !videoOn;
+    store.set('ytcr.video', videoOn);
+    showVideoSwitch();
+    render();
+  };
+  function videoShowing(on) {
+    $('art-box').classList.toggle('video', on);
+    document.body.classList.toggle('vidshow', on);
+  }
+  vid.addEventListener('playing', () => { if (vidSrc) videoShowing(true); });
+  vid.addEventListener('error', () => videoShowing(false));
+  function syncVideo(s) {
+    const want = s?.video?.src || null;
+    if (want !== vidSrc) {
+      vidSrc = want;
+      videoShowing(false);
+      if (want) vid.src = want;
+      else {
+        vid.pause();
+        vid.removeAttribute('src');
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      }
+      vid.load();
+    }
+    if (!want || vid.error) return;
+    const paused = s.state === 'paused';
+    const target = (s.positionExact ?? s.position) + (paused ? 0 : (Date.now() - lastAt) / 1000)
+      - (s.video.offsetMs || 0) / 1000;
+    if (paused) {
+      if (!vid.paused) vid.pause();
+    }
+    else if (vid.paused && vid.readyState >= 2) {
+      vid.play().catch(() => {});
+    }
+    if (vid.readyState < 1 || vid.seeking) return;
+    if (Math.abs(vid.currentTime - target) > DRIFT_LIMIT && Date.now() - lastSeekAt > SEEK_GAP_MS) {
+      lastSeekAt = Date.now();
+      vid.currentTime = target + (paused ? 0 : SEEK_LEAD);
+    }
+  }
+  // Tap the video for full screen; tap again to come back. iPhones only allow
+  // their own video player full screen.
+  vid.addEventListener('click', () => {
+    const box = $('art-box');
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else if (box.requestFullscreen) box.requestFullscreen().catch(() => {});
+    else if (vid.webkitEnterFullscreen) vid.webkitEnterFullscreen();
+  });
+  showVideoSwitch();
 
   async function poll() {
     try {
