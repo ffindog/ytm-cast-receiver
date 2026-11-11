@@ -45,7 +45,10 @@ Built for a workshop; shared as-is. Issues and ideas welcome.
   (`RDAMVM<videoId>`), in order, skipping anything played recently (`MusicRadio.mjs`).
   YouTube's plain TV autoplay was tried first and drifted into non-music videos.
 - **Failed tracks are skipped**, at most 3 in a row, then it stops (so an outage can't race
-  through the queue).
+  through the queue). Before that, a loader network error ("fetch failed") gets one retry,
+  and a stream that mpv can't open (YouTube's 403, common for a minute after a restart) is
+  fetched again once without the phone's token. Ordinary videos fall back through the
+  ANDROID_VR, YTMUSIC and TV clients until one's stream answers.
 - **Volume** from the phone is confirmed once, 0.33 s after the last press (per-press
   confirmations made the phone's slider jump around), and is **kept across restarts**.
 - **Screen off or unplugged:** videos play as audio from the same spot instead of failing.
@@ -57,7 +60,21 @@ Built for a workshop; shared as-is. Issues and ideas welcome.
   carried on sends its old queue when it reconnects (the song it last saw). For 15 s after a
   connect, a first `setPlaylist` asking for a song already played here is ignored and the
   phone is sent what is playing instead (`ytcrStaleReconnect`, patched into the library).
-  Picking that song again on purpose still works.
+  Picking that song again on purpose still works. The play history is saved
+  (`data/history.json`), so this survives restarts; asking for the other version of the
+  current track (see below) counts as stale too.
+- **Song/Video switch on the control page and the remote.** YouTube Music pairs most songs
+  with their music video under a different id. Its `/next` answer lists the pairs, but only
+  when asked with the phone's token, so the receiver looks them up when a track starts
+  (one lookup covers ~25 tracks of its radio) and saves them (`data/versions.json`). The page
+  then offers **Switch to video** / **Switch to song**, and the remote a **Song / video**
+  action; both make the same swap as the phone's own switch, carrying on from the same
+  time. Each version is loaded with its own token if the phone ever sent one (YouTube
+  refuses a stream with another track's token), else without. If the other version won't
+  play it goes back to the one you were on instead of skipping. Known limits: the phone's
+  switch does not follow a change made here (it plays on, still showing the old version),
+  and the two versions often have different intros, so the same time is not always the
+  same point in the song.
 - **YouTube Music's Song/Video switch flips back to "Song"** after you choose Video. The video
   still plays; only the phone's switch is wrong. This is a **YouTube Music bug**: an LG TV with
   the official YouTube app does exactly the same. Swaps themselves are clean here: no
@@ -71,7 +88,10 @@ shows the following song, whose art is preloaded so it appears at once), then **
 slider, loop (repeat this song), mute), then **This device** (Listen here, with its own volume and mute
 for the stream only, remembered per device). It fits one screen with no scrolling: on wide
 screens the art sits left and the three sections stack on the right; on a phone held upright
-the art shrinks to a thumbnail beside the song. While listening, the phone's lock screen
+the art shrinks to a thumbnail beside the song. A music video plays in place of the art
+(muted, kept in step with the speakers like the TV page; tap it for full screen); **Show
+video** in the header turns that on or off per device (on by default for wide screens, off
+for phones). The page's width follows the screen height, so big screens are used. While listening, the phone's lock screen
 shows the song and art (pause stops the stream; skip skips the workshop). iPhones ignore a
 page's volume setting, so there the local slider defers to the phone's buttons.
 
@@ -97,6 +117,7 @@ curl -X POST "http://<receiver>:8098/api/control/seek?position=90"   # seconds i
 curl -X POST "http://<receiver>:8098/api/control/loop"        # repeat this song; ?on=1 | 0 | toggle
 curl -X POST "http://<receiver>:8098/api/control/volume?step=5"   # or ?step=-5, ?level=40
 curl -X POST "http://<receiver>:8098/api/control/mute"        # ?on=1 | 0 | toggle (default)
+curl -X POST "http://<receiver>:8098/api/control/song-video"  # switch to the other version
 ```
 
 Read-only: `GET /api/now-playing`. Unmute restores the level from before muting (YouTube

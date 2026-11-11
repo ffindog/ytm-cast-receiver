@@ -19,7 +19,8 @@ export const REMOTE_ACTIONS = {
   'volume-up': { label: 'Volume up', action: 'volume', query: 'step=5', repeat: true },
   'volume-down': { label: 'Volume down', action: 'volume', query: 'step=-5', repeat: true },
   mute: { label: 'Mute', action: 'mute' },
-  loop: { label: 'Loop', action: 'loop' }
+  loop: { label: 'Loop', action: 'loop' },
+  'song-video': { label: 'Song / video', action: 'song-video' }
 };
 
 // A held button may resend its code. Volume follows the hold (at most this

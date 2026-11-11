@@ -35,6 +35,10 @@ const MAX_SKIPS = 3;
 const TRANSIENT_ERROR = /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|timed? ?out/i;
 const RETRY_DELAY_MS = 1500;
 
+// After a Song <-> Video switch from the page or remote: a failure this soon
+// goes back to the version we came from instead of skipping the song.
+const SWITCH_BACK_MS = 30000;
+
 // Volume changes from the phone are confirmed back once, this long after the
 // last button press. Confirming every press made the phone jump back to stale
 // levels; never confirming left the phone with no volume indicator.
@@ -190,6 +194,9 @@ export default class MpvPlayer extends Player {
   #reconnectAt = 0;
   #pageVideo = null; // window mode: { seq, url, label } for /api/video/<seq>
   #pageVideoSeq = 0;
+  #switchBack = null; // see ytcrSwitchVersion()
+  #retriedId = null; // track already given its one retry, see #skipOrStop
+  #tokens = new Map(); // video id -> the phone's token for it (memory only)
 
   constructor(loader, mpvOptions = {}) {
     super();
@@ -210,6 +217,16 @@ export default class MpvPlayer extends Player {
       catch {
         // First run, or unreadable: keep the default.
       }
+    }
+    // Play history too, for the stale-reconnect check: in memory only, a
+    // restart forgot it and a reconnecting phone pulled the receiver back to
+    // a song from before the restart (2026-11-11).
+    if (this.mpvOptions.historyFile) {
+      try {
+        const saved = JSON.parse(readFileSync(this.mpvOptions.historyFile, 'utf8'));
+        if (Array.isArray(saved)) this.#history = saved.filter((id) => typeof id === 'string').slice(-HISTORY_SIZE);
+      }
+      catch {}
     }
     this.#audio = new Mpv(this.logger, '/tmp/ytcr-mpv.sock');
     this.#audio.onEvent = (event) => this.#onAudioEvent(event);
@@ -286,14 +303,36 @@ export default class MpvPlayer extends Player {
     if (event.playlist_entry_id !== this.#playingEntry) return;
     this.#playingEntry = null;
     if (event.reason === 'error') {
-      void this.#skipOrStop(`mpv could not play the stream (${event.file_error || 'error'})`);
+      void this.#skipOrStop(`mpv could not play the stream (${event.file_error || 'error'})`, { retry: true });
     }
     else {
       void this.#trackEnded();
     }
   }
 
-  async #skipOrStop(reason) {
+  async #skipOrStop(reason, { retry = false } = {}) {
+    // A stream YouTube refuses ("stream check 403") is usually down to the
+    // phone's sign-in token (ctt) not fitting: it belongs to one track, and
+    // goes stale - a track resumed after a restart, or the other version
+    // after a Song <-> Video switch, carries one that YouTube rejects
+    // (2026-11-11). Try once more without it: only age-restricted tracks
+    // need it.
+    const current = this.queue.current;
+    if (retry && current && this.#retriedId !== current.id) {
+      this.#retriedId = current.id;
+      const context = { ...(current.context || {}) };
+      const hadToken = !!context.ctt;
+      delete context.ctt;
+      this.logger.warn(`[player] ${reason}; trying it once more${hadToken ? ' without the phone\'s token' : ''}`);
+      try {
+        await this.play({ ...current, context }, this.#startPosition);
+        return;
+      }
+      catch (error) {
+        this.logger.error(`[player] retry failed: ${error?.message || error}`);
+      }
+    }
+    if (await this.#trySwitchBack(reason)) return;
     if (this.#failures < MAX_SKIPS) {
       this.#failures += 1;
       this.logger.warn(`[player] ${reason}; skipping to next track (${this.#failures}/${MAX_SKIPS} in a row)`);
@@ -377,6 +416,12 @@ export default class MpvPlayer extends Player {
     this.#abort?.abort();
     const abort = this.#abort = new AbortController();
     this.#loadingId = video.id;
+    if (video.id !== this.#retriedId) this.#retriedId = null;
+    if (video.context?.ctt) {
+      this.#tokens.delete(video.id);
+      this.#tokens.set(video.id, video.context.ctt);
+      if (this.#tokens.size > 200) this.#tokens.delete(this.#tokens.keys().next().value);
+    }
     // Song <-> Video swap of the same track (flag set by patch-ytcr.cjs):
     // carry on from where we are, as a TV does, not from the phone's guess.
     if (this.ytcrSwapping && this.#playingEntry !== null) {
@@ -392,6 +437,10 @@ export default class MpvPlayer extends Player {
     this.#startPosition = position || 0;
     this.#pageVideo = null;
     this.#history = [ ...this.#history.filter((id) => id !== video.id), video.id ].slice(-HISTORY_SIZE);
+    if (this.mpvOptions.historyFile) {
+      writeFile(this.mpvOptions.historyFile, JSON.stringify(this.#history)).catch((error) =>
+        this.logger.error(`[player] could not save history: ${error?.message || error}`));
+    }
     await this.#audio.command('stop');
     this.#playingEntry = null;
     this.#houseTrack = null;
@@ -451,8 +500,67 @@ export default class MpvPlayer extends Player {
       // The house stream decodes the same audio track itself (HouseStream.mjs).
       this.#houseTrack = { url: info.streamUrl, title: info.title };
       this.mpvOptions.houseStream?.play(info.streamUrl, position, info.title);
+      // Find the track's other version (Song <-> Video) for the page's switch.
+      // In the background: playback never waits for it.
+      this.#loader.lookupVersions(video)
+        .then((v) => {
+          if (v?.other) this.logger.info(`[player] ${video.id} is the ${v.kind}; ${v.otherKind} version: ${v.other}`);
+        })
+        .catch((error) => this.logger.warn(`[player] version lookup for ${video.id} failed: ${error?.message || error}`));
     }
     return ok;
+  }
+
+  // Song <-> Video switch from the control page or the remote: the same swap
+  // the phone's own switch makes (same queue place, carries on from the same
+  // point), then the phone is told what is playing now.
+  async ytcrSwitchVersion() {
+    const current = this.queue.current;
+    const playing = this.#playingEntry !== null ? this.#nowPlaying : null;
+    if (!current || !playing || playing.id !== current.id) return false;
+    const v = this.#loader.versionOf(current.id);
+    if (!v?.other) return false;
+    const ids = this.queue.videoIds;
+    const index = current.context?.index;
+    if (Number.isInteger(index) && ids[index] === current.id) ids[index] = v.other;
+    this.logger.info(`[player] switching "${playing.title}" to the ${v.otherKind} version (${v.other})`);
+    // If the other version will not play (YouTube refused its stream four
+    // times in a row on 2026-11-11), go back to this one rather than skip
+    // the song: see #skipOrStop.
+    this.#switchBack = {
+      video: current, from: v.other, kind: v.kind, position: await this.doGetPosition(), at: Date.now()
+    };
+    this.ytcrSwap = true;
+    // The phone's token belongs to one track: YouTube refuses the other
+    // version's stream with the one we are leaving (403). Use the other
+    // version's own token if the phone ever sent it (switching back to the
+    // song), else none; without one, YouTube refused the song too
+    // (2026-11-11).
+    const context = { ...(current.context || {}) };
+    const token = this.#tokens.get(v.other);
+    if (token) context.ctt = token;
+    else delete context.ctt;
+    return this.play({ ...current, id: v.other, context, ytcrSwitched: !token }, 0);
+  }
+
+  // A switched-to version failed within SWITCH_BACK_MS: play the version we
+  // came from again, from where it was. True when it took over.
+  async #trySwitchBack(reason) {
+    const back = this.#switchBack;
+    this.#switchBack = null;
+    if (!back || Date.now() - back.at > SWITCH_BACK_MS || this.queue.current?.id !== back.from) return false;
+    this.logger.warn(`[player] ${reason}; going back to the ${back.kind} version`);
+    const ids = this.queue.videoIds;
+    const index = back.video.context?.index;
+    if (Number.isInteger(index) && ids[index] === back.from) ids[index] = back.video.id;
+    try {
+      await this.play(back.video, back.position);
+      return true;
+    }
+    catch (error) {
+      this.logger.error(`[player] going back failed: ${error?.message || error}`);
+      return false;
+    }
   }
 
   // Whether a screen is connected to the DRM card mpv draws on.
@@ -637,7 +745,10 @@ export default class MpvPlayer extends Player {
     const requested = payload?.videoId || ids[Number(payload?.currentIndex)] || null;
     const current = this.queue.current?.id;
     if (!requested || !current || requested === current) return false;
-    if (!this.#history.slice(0, -1).includes(requested)) return false;
+    // The other version of the current track (switched from the page, so
+    // the phone still has the old one) counts as stale too.
+    const otherVersion = this.#loader.versionOf(current)?.other === requested;
+    if (!otherVersion && !this.#history.slice(0, -1).includes(requested)) return false;
     this.logger.info(`[player] phone reconnected asking for ${requested} (played earlier); `
       + `staying on ${current} and telling the phone`);
     return true;
@@ -671,9 +782,17 @@ export default class MpvPlayer extends Player {
       position: playing ? await this.doGetPosition() : 0,
       duration: playing ? await this.doGetDuration() : 0,
       next: playing ? this.#currentUpNext() : null,
+      // Song <-> Video: what this track is and what it can switch to (null
+      // while unknown or when there is no other version).
+      versions: playing ? this.#versionsOf(playing.id) : null,
       loop: this.#loop,
       volume: this.#volume
     };
+  }
+
+  #versionsOf(id) {
+    const v = this.#loader.versionOf(id);
+    return v?.other ? { current: v.kind, switchTo: v.otherKind } : null;
   }
 
   async doGetVolume() {

@@ -77,14 +77,15 @@ const VIDEO_MODE = [ 'window', 'fullscreen', 'off' ].includes(env.YTCR_VIDEO_MOD
 // the box it fills. Full screen gets up to 1080p.
 const MAX_VIDEO_HEIGHT = Number(env.YTCR_VIDEO_MAX_HEIGHT) || (VIDEO_MODE === 'fullscreen' ? 1080 : 720);
 
-const player = new MpvPlayer(new VideoLoader(loaderLogger, { maxVideoHeight: MAX_VIDEO_HEIGHT }), {
+const player = new MpvPlayer(new VideoLoader(loaderLogger, { maxVideoHeight: MAX_VIDEO_HEIGHT, versionsFile: `${DATA_DIR}/versions.json` }), {
   houseStream,
   videoMode: VIDEO_MODE,
   // Window mode: lip-sync trim, and a sync report from the page every 10 s.
   videoOffsetMs: Number(env.YTCR_VIDEO_OFFSET_MS) || 0,
   videoSyncLog: env.YTCR_VIDEO_SYNC_LOG === '1',
   audioDevice: env.YTCR_AUDIO_DEVICE,
-  volumeFile: `${DATA_DIR}/volume.json`
+  volumeFile: `${DATA_DIR}/volume.json`,
+  historyFile: `${DATA_DIR}/history.json`
 });
 const receiver = new YouTubeCastReceiver(player, {
   // Brand/model are reported to YouTube when pairing; see README (Song/Video switch).

@@ -7,6 +7,8 @@
 // YouTube serve the stream as the phone's signed-in account. That is what
 // lets age-restricted tracks play without any cookies on this machine.
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 
 const require = createRequire(import.meta.url);
 const { InnertubeFactory } = require('volumio-yt-support');
@@ -24,6 +26,18 @@ function largestThumbnail(thumbnails) {
   return url.replace(/=w\d+-h\d+/, '=w1200-h1200');
 }
 
+// Every value under `key` anywhere in a raw (unparsed) Innertube answer.
+function findAll(obj, key, out = []) {
+  if (obj && typeof obj === 'object') {
+    for (const [ k, v ] of Object.entries(obj)) {
+      if (k === key) out.push(v);
+      else findAll(v, key, out);
+    }
+  }
+  return out;
+}
+const findKey = (obj, key) => findAll(obj, key)[0];
+
 const ITAG_TO_BITRATE = {
   139: '48', 140: '128', 141: '256', 171: '128',
   249: 'VBR 50', 250: 'VBR 70', 251: 'VBR 160', 774: 'VBR 256'
@@ -33,9 +47,21 @@ export default class VideoLoader {
   #logger;
   #wrapperPromise = null;
   #lock = Promise.resolve();
+  #versions = new Map(); // Song <-> Video pairs, see versionOf()
+  #versionsFile = null;
+  #lastCtt = null; // newest phone token seen, for lookups of tracks without one
 
-  constructor(logger, { region = 'AU', language = 'en', maxVideoHeight = 1080 } = {}) {
+  constructor(logger, { region = 'AU', language = 'en', maxVideoHeight = 1080, versionsFile = null } = {}) {
     this.#logger = logger;
+    // Known Song <-> Video pairs (video ids only) survive a restart: after
+    // one, the track carries on without a token to look them up with.
+    this.#versionsFile = versionsFile;
+    if (versionsFile) {
+      try {
+        this.#versions = new Map(JSON.parse(readFileSync(versionsFile, 'utf8')));
+      }
+      catch {}
+    }
     this.locale = { region, language };
     // Tallest video stream to pick: 1080 for full screen, less when the video
     // only fills a box on the now-playing page (decoded by the browser's CPU).
@@ -99,29 +125,61 @@ export default class VideoLoader {
     });
   }
 
-  // Diagnostic (YTCR_PROBE_COUNTERPART=1): does YouTube Music's /next, asked
-  // with the phone's token on the session, give the Song <-> Video
-  // counterpart? Anonymous requests never do (tested 2026-11-09). Logs the
-  // answer only, never the token.
-  async #probeCounterpart(innertube, id, hasCtt) {
-    try {
+  // Song <-> Video: YouTube Music pairs most songs (an "ATV" track) with their
+  // music video, under a different id. Its /next answer lists the pairs, but
+  // only when asked with the phone's token (ctt) on the session - anonymous
+  // requests never get them (tested 2026-11-09). One lookup covers the track
+  // and the next ~25 of its radio, so most later tracks are already known.
+  //   versionOf(id) -> { kind: 'song' | 'video', other: id | null, otherKind }
+  versionOf(id) {
+    return this.#versions.get(id) || null;
+  }
+
+  lookupVersions(video) {
+    if (video.context?.ctt) this.#lastCtt = video.context.ctt;
+    if (this.#versions.has(video.id)) return Promise.resolve(this.#versions.get(video.id));
+    // A track without its own token (resumed after a restart, or a switched
+    // version) is looked up with the newest one the phone sent: the pairs
+    // only need the session to count as signed in. Kept in memory only.
+    const ctt = video.context?.ctt || this.#lastCtt;
+    if (!ctt) return Promise.resolve(null);
+    return this.#exclusive(async () => {
+      const innertube = await this.#innertube();
+      innertube.session.context.user = {
+        enableSafetyMode: false,
+        lockedSafetyMode: false,
+        credentialTransferTokens: [ { scope: 'VIDEO', token: ctt } ]
+      };
       const res = await innertube.actions.execute('/next', {
-        videoId: id, playlistId: `RDAMVM${id}`, isAudioOnly: true, enablePersistentPlaylistPanel: true,
+        videoId: video.id, playlistId: `RDAMVM${video.id}`, isAudioOnly: true, enablePersistentPlaylistPanel: true,
         tunerSettingValue: 'AUTOMIX_SETTING_NORMAL',
         watchEndpointMusicSupportedConfigs: { watchEndpointMusicConfig: { hasPersistentPlaylistPanel: true } },
         client: 'YTMUSIC', parse: false
       });
-      const text = JSON.stringify(res.data);
-      const wrappers = (text.match(/playlistPanelVideoWrapperRenderer/g) || []).length;
-      const counterparts = (text.match(/counterpartRenderer/g) || []).length;
-      const first = text.match(/"counterpartRenderer":\{"playlistPanelVideoRenderer":\{.*?"videoId":"([A-Za-z0-9_-]{11})"/)?.[1] || 'none';
-      const loggedIn = /"logged_in","value":"1"/.test(text) ? 'yes' : 'no';
-      this.#logger.info(`[probe] ${id} ctt=${hasCtt ? 'yes' : 'no'} loggedIn=${loggedIn} `
-        + `wrappers=${wrappers} counterparts=${counterparts} first=${first}`);
-    }
-    catch (error) {
-      this.#logger.warn(`[probe] ${id} failed: ${error?.message || error}`);
-    }
+      if (this.#versions.size > 2000) this.#versions.clear();
+      const kindOf = (r) => (findKey(r, 'musicVideoType') === 'MUSIC_VIDEO_TYPE_ATV' ? 'song' : 'video');
+      for (const item of findAll(res.data, 'playlistPanelRenderer').flatMap((p) => p.contents || [])) {
+        const wrapper = item.playlistPanelVideoWrapperRenderer;
+        const primary = wrapper?.primaryRenderer?.playlistPanelVideoRenderer || item.playlistPanelVideoRenderer;
+        if (!primary?.videoId) continue;
+        const counter = wrapper?.counterpart?.[0]?.counterpartRenderer?.playlistPanelVideoRenderer;
+        if (counter?.videoId) {
+          const a = kindOf(primary), b = kindOf(counter);
+          this.#versions.set(primary.videoId, { kind: a, other: counter.videoId, otherKind: b });
+          this.#versions.set(counter.videoId, { kind: b, other: primary.videoId, otherKind: a });
+        }
+        else if (!this.#versions.has(primary.videoId)) {
+          this.#versions.set(primary.videoId, { kind: kindOf(primary), other: null, otherKind: null });
+        }
+      }
+      // Not in the answer at all: remember that too, so it is not asked again.
+      if (!this.#versions.has(video.id)) this.#versions.set(video.id, { kind: null, other: null, otherKind: null });
+      if (this.#versionsFile) {
+        writeFile(this.#versionsFile, JSON.stringify([ ...this.#versions ])).catch((error) =>
+          this.#logger.warn(`[loader] could not save versions: ${error?.message || error}`));
+      }
+      return this.#versions.get(video.id);
+    });
   }
 
   async #getInfo(video, abortSignal) {
@@ -159,9 +217,14 @@ export default class VideoLoader {
         }
       }
     };
-    if (video.context?.playlistId) payload.playlistId = video.context.playlistId;
-    if (video.context?.params) payload.params = video.context.params;
-    if (video.context?.index !== undefined) payload.index = video.context.index;
+    // Not for a switched-to version: the playlist details belong to the
+    // version the phone queued, and with them YouTube refused the other
+    // version's streams (403) on every client (2026-11-11).
+    if (!video.ytcrSwitched) {
+      if (video.context?.playlistId) payload.playlistId = video.context.playlistId;
+      if (video.context?.params) payload.params = video.context.params;
+      if (video.context?.index !== undefined) payload.index = video.context.index;
+    }
 
     // The phone's credential transfer token: plays as the phone's account.
     if (video.context?.ctt) {
@@ -177,7 +240,6 @@ export default class VideoLoader {
     const hasCtt = !!video.context?.ctt;
 
     const cpn = InnertubeLib.Utils.generateRandomString(16);
-    if (process.env.YTCR_PROBE_COUNTERPART === '1') await this.#probeCounterpart(innertube, video.id, hasCtt);
     try {
       const next = await innertube.actions.execute('/next', { ...payload, client: 'TV' });
       checkAbort();
@@ -204,18 +266,41 @@ export default class VideoLoader {
         throw new Error('metadata not found in /next response');
       }
 
-      // YTMUSIC client for music, ANDROID_VR for ordinary videos, WEB for live.
-      payload.client = basic.src === 'ytmusic' ? 'YTMUSIC' : (basic.isLive ? 'WEB' : 'ANDROID_VR');
-      let info = await this.#player(payload, cpn);
-      checkAbort();
-      let { stream, validated, errMsg } = await this.#stream(info, basic, contentPoToken, abortSignal, checkAbort);
-      if (stream?.url && !validated && basic.src === 'ytmusic') {
-        this.#logger.info(`[loader] (${basic.title}) YTMUSIC stream did not validate; retrying with TV client`);
-        payload.client = 'TV';
-        info = await this.#player(payload, cpn);
-        checkAbort();
-        ({ stream, validated, errMsg } = await this.#stream(info, basic, contentPoToken, abortSignal, checkAbort));
+      // YTMUSIC client for music, ANDROID_VR for ordinary videos, WEB for live;
+      // TV as the fallback when the first one's stream is refused. Ordinary
+      // videos had no fallback: a music video played without the phone's
+      // token (a Song -> Video switch from the page) got 403 from ANDROID_VR
+      // every time (2026-11-11).
+      // A switched-to version (video.ytcrSwitched, from MpvPlayer) has no
+      // token; YTMUSIC was the one client that played every music video tried
+      // that way (TV: "No valid URL to decipher" for Ren - Hi Ren, 2026-11-11).
+      const clients = basic.isLive ? [ 'WEB' ]
+        : basic.src === 'ytmusic' ? [ 'YTMUSIC', 'TV' ]
+          : video.ytcrSwitched ? [ 'YTMUSIC', 'ANDROID_VR', 'TV' ] : [ 'ANDROID_VR', 'YTMUSIC', 'TV' ];
+      let info, stream, validated, errMsg;
+      let best = null;
+      let lastError = null;
+      for (const [ i, client ] of clients.entries()) {
+        if (i > 0) this.#logger.info(`[loader] (${basic.title}) ${clients[i - 1]} stream did not work; retrying with ${client} client`);
+        payload.client = client;
+        try {
+          const tryInfo = await this.#player(payload, cpn);
+          checkAbort();
+          // Fewer checks before moving on to the next client: a refusal there
+          // is rarely a blip.
+          const result = await this.#stream(tryInfo, basic, contentPoToken, abortSignal, checkAbort,
+            i < clients.length - 1 ? 1 : 3);
+          if (!best || result.validated || (result.stream?.url && !best.result.stream?.url)) best = { info: tryInfo, result };
+          if (result.validated) break;
+        }
+        catch (error) {
+          if (error?.name === 'AbortError') throw error;
+          lastError = error;
+        }
       }
+      if (!best) throw lastError || new Error('no client gave a stream');
+      info = best.info;
+      ({ stream, validated, errMsg } = best.result);
       // Video for anything that is not a plain audio track: YouTube Music's
       // music videos (the app's Song/Video switch sends their id) and any
       // ordinary YouTube video. Songs (MUSIC_VIDEO_TYPE_ATV) stay audio-only.

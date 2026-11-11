@@ -6,6 +6,7 @@
 //   POST /api/control/loop?on=1 | 0 | toggle   (repeat the current song)
 //   POST /api/control/volume?level=0..100   or   ?step=+5 / -5
 //   POST /api/control/mute?on=1 | 0 | toggle   (default toggle)
+//   POST /api/control/song-video   (switch to the track's other version)
 //
 // Replies with the now-playing JSON (plus "ok"). Commands go through the
 // library's own Player methods, so the phone app and the screen update too.
@@ -56,6 +57,11 @@ export const ACTIONS = {
     const on = params.get('on') ?? 'toggle';
     player.setLoop(on === 'toggle' ? !player.loop : on === '1' || on === 'true');
     return true;
+  },
+  // Song <-> Video: false when the track has no other version (or it is
+  // not known yet).
+  async 'song-video'(player) {
+    return player.ytcrSwitchVersion();
   },
   async volume(player, params) {
     const current = await player.getVolume();
